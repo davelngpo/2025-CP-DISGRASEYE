@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DisgrasEye - AI-Powered Crash Detection System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes pulse-slow {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .pulse-slow { animation: pulse-slow 2s ease-in-out infinite; }
+        
+        @keyframes slide-up {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .slide-up { animation: slide-up 0.6s ease-out; }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+    <!-- Theme Toggle -->
+    <button id="themeToggle" class="fixed top-4 right-4 z-50 bg-white dark:bg-gray-800 p-3 rounded-full shadow-lg hover:shadow-xl transition-all">
+        <svg class="w-6 h-6 text-yellow-500 dark:hidden" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"/>
+        </svg>
+        <svg class="w-6 h-6 text-gray-300 hidden dark:block" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+        </svg>
+    </button>
+
+    <!-- Hero Section -->
+    <section class="gradient-bg min-h-screen flex items-center justify-center relative overflow-hidden">
+        <div class="absolute inset-0 opacity-10">
+            <div class="absolute w-96 h-96 bg-white rounded-full -top-48 -left-48 pulse-slow"></div>
+            <div class="absolute w-96 h-96 bg-white rounded-full -bottom-48 -right-48 pulse-slow" style="animation-delay: 1s;"></div>
+        </div>
+        
+        <div class="container mx-auto px-4 relative z-10">
+            <div class="text-center text-white slide-up">
+                <h1 class="text-5xl md:text-7xl font-bold mb-6">DisgrasEye</h1>
+                <p class="text-xl md:text-2xl mb-8 font-light">An AI-Powered CCTV System for Real-Time Vehicle Crash Detection and Alerting</p>
+                <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                    <a href="#demo" class="bg-white text-purple-600 px-8 py-4 rounded-lg font-semibold hover:bg-gray-100 transition-all transform hover:scale-105 shadow-lg">
+                        Try Live Demo
+                    </a>
+                    <a href="#overview" class="glass-effect text-white px-8 py-4 rounded-lg font-semibold hover:bg-white/20 transition-all">
+                        Learn More
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Overview Section -->
+    <section id="overview" class="py-20 bg-white dark:bg-gray-800">
+        <div class="container mx-auto px-4">
+            <h2 class="text-4xl font-bold text-center mb-12 text-gray-900 dark:text-white">System Overview</h2>
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 p-8 rounded-xl shadow-lg transform hover:scale-105 transition-all">
+                    <div class="text-4xl mb-4">🎥</div>
+                    <h3 class="text-xl font-bold mb-3 text-gray-900 dark:text-white">Real-Time Detection</h3>
+                    <p class="text-gray-700 dark:text-gray-300">Process CCTV footage in real-time using advanced YOLOv8 computer vision algorithms</p>
+                </div>
+                <div class="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-900 dark:to-red-800 p-8 rounded-xl shadow-lg transform hover:scale-105 transition-all">
+                    <div class="text-4xl mb-4">🚨</div>
+                    <h3 class="text-xl font-bold mb-3 text-gray-900 dark:text-white">Instant Alerts</h3>
+                    <p class="text-gray-700 dark:text-gray-300">Automatically notify traffic authorities and emergency services when crashes are detected</p>
+                </div>
+                <div class="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900 dark:to-green-800 p-8 rounded-xl shadow-lg transform hover:scale-105 transition-all">
+                    <div class="text-4xl mb-4">📊</div>
+                    <h3 class="text-xl font-bold mb-3 text-gray-900 dark:text-white">Analytics Dashboard</h3>
+                    <p class="text-gray-700 dark:text-gray-300">Track detection history, confidence scores, and system performance metrics</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Live Detection Demo -->
+    <section id="demo" class="py-20 bg-gray-50 dark:bg-gray-900">
+        <div class="container mx-auto px-4 max-w-4xl">
+            <h2 class="text-4xl font-bold text-center mb-12 text-gray-900 dark:text-white">Live Detection Demo</h2>
+            
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8">
+                <!-- Upload Area -->
+                <div id="uploadArea" class="border-4 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-12 text-center mb-6 hover:border-purple-500 transition-all cursor-pointer">
+                    <input type="file" id="fileInput" accept="image/*,video/*" class="hidden">
+                    <div class="text-6xl mb-4">📁</div>
+                    <p class="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">Click or drag to upload</p>
+                    <p class="text-gray-500 dark:text-gray-400">Support: Images (JPG, PNG) or Videos (MP4, AVI)</p>
+                </div>
+
+                <!-- Processing Status -->
+                <div id="processingStatus" class="hidden mb-6">
+                    <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg p-4 flex items-center">
+                        <svg class="animate-spin h-5 w-5 mr-3 text-blue-600" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span class="text-blue-700 dark:text-blue-300 font-semibold">Analyzing with YOLOv8...</span>
+                    </div>
+                </div>
+
+                <!-- Results Area -->
+                <div id="resultsArea" class="hidden">
+                    <div id="resultAlert" class="rounded-lg p-6 mb-6"></div>
+                    
+                    <!-- Detection Image Preview -->
+                    <div class="mb-6">
+                        <img id="resultImage" class="w-full rounded-lg shadow-lg" alt="Detection Result">
+                    </div>
+
+                    <!-- Detection Details -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                            <p class="text-gray-600 dark:text-gray-400 text-sm mb-1">Status</p>
+                            <p id="detectionStatus" class="text-xl font-bold text-gray-900 dark:text-white"></p>
+                        </div>
+                        <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                            <p class="text-gray-600 dark:text-gray-400 text-sm mb-1">Confidence</p>
+                            <p id="detectionConfidence" class="text-xl font-bold text-gray-900 dark:text-white"></p>
+                        </div>
+                        <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg col-span-2">
+                            <p class="text-gray-600 dark:text-gray-400 text-sm mb-1">Timestamp</p>
+                            <p id="detectionTimestamp" class="text-lg font-semibold text-gray-900 dark:text-white"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Dashboard Preview -->
+    <section class="py-20 bg-white dark:bg-gray-800">
+        <div class="container mx-auto px-4">
+            <h2 class="text-4xl font-bold text-center mb-12 text-gray-900 dark:text-white">Recent Detections</h2>
+            
+            <div class="max-w-4xl mx-auto">
+                <div id="detectionLogs" class="space-y-4">
+                    <!-- Sample log entries will be added here -->
+                    <div class="bg-gray-50 dark:bg-gray-700 p-6 rounded-xl shadow-md">
+                        <div class="flex justify-between items-start mb-3">
+                            <span class="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-3 py-1 rounded-full text-sm font-semibold">Crash Detected</span>
+                            <span class="text-gray-500 dark:text-gray-400 text-sm">2 mins ago</span>
+                        </div>
+                        <p class="text-gray-700 dark:text-gray-300 mb-2">Detection at Main Street intersection</p>
+                        <div class="flex gap-4 text-sm text-gray-600 dark:text-gray-400">
+                            <span>Confidence: <strong class="text-gray-900 dark:text-white">94%</strong></span>
+                            <span>Response: <strong class="text-green-600 dark:text-green-400">Dispatched</strong></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Team Info -->
+    <section class="py-20 bg-gray-50 dark:bg-gray-900">
+        <div class="container mx-auto px-4 text-center">
+            <h2 class="text-4xl font-bold mb-6 text-gray-900 dark:text-white">Developed By</h2>
+            <p class="text-xl text-gray-600 dark:text-gray-400 mb-8">Computer Science Department</p>
+            <p class="text-lg text-gray-700 dark:text-gray-300">University Research Project</p>
+        </div>
+    </section>
+
+    <script>
+        // Theme Toggle
+        const themeToggle = document.getElementById('themeToggle');
+        const html = document.documentElement;
+        
+        themeToggle.addEventListener('click', () => {
+            html.classList.toggle('dark');
+            localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+        });
+        
+        // Load saved theme
+        if (localStorage.getItem('theme') === 'dark') {
+            html.classList.add('dark');
+        }
+
+        // File Upload Handling
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const processingStatus = document.getElementById('processingStatus');
+        const resultsArea = document.getElementById('resultsArea');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('border-purple-500');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('border-purple-500');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('border-purple-500');
+            const file = e.dataTransfer.files[0];
+            if (file) processFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) processFile(file);
+        });
+
+        function processFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Show processing status
+            processingStatus.classList.remove('hidden');
+            resultsArea.classList.add('hidden');
+
+            // AJAX request to Django backend
+            fetch('/detect/', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                processingStatus.classList.add('hidden');
+                displayResults(data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                processingStatus.classList.add('hidden');
+                alert('Detection failed. Please try again.');
+            });
+        }
+
+        function displayResults(data) {
+            resultsArea.classList.remove('hidden');
+            
+            const resultAlert = document.getElementById('resultAlert');
+            const isCrash = data.crash_detected;
+            
+            resultAlert.className = `rounded-lg p-6 mb-6 ${isCrash ? 'bg-red-50 dark:bg-red-900/30 border-2 border-red-500' : 'bg-green-50 dark:bg-green-900/30 border-2 border-green-500'}`;
+            resultAlert.innerHTML = `
+                <div class="flex items-center">
+                    <span class="text-4xl mr-4">${isCrash ? '🚨' : '✅'}</span>
+                    <div>
+                        <h3 class="text-2xl font-bold ${isCrash ? 'text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'} mb-1">
+                            ${isCrash ? 'Crash Detected!' : 'No Crash Detected'}
+                        </h3>
+                        <p class="${isCrash ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}">
+                            ${isCrash ? 'Emergency services have been notified' : 'All vehicles are operating normally'}
+                        </p>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('detectionStatus').textContent = data.status;
+            document.getElementById('detectionConfidence').textContent = data.confidence + '%';
+            document.getElementById('detectionTimestamp').textContent = new Date(data.timestamp).toLocaleString();
+            
+            if (data.image_path) {
+                document.getElementById('resultImage').src = data.image_path;
+            }
+        }
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+</body>
+</html>
