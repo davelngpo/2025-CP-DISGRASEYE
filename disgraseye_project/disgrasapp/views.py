@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.core.files.storage import default_storage
@@ -9,7 +9,7 @@ from .models import Detection
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.shortcuts import redirect
+
 
 
 
@@ -24,7 +24,7 @@ def login_view(request):
         
         if user is not None:
             login(request, user)
-            return redirect('dashboard/dashboard')
+            return redirect('dashboard')
         else:
             messages.error(request, 'Invalid username or password')
     
@@ -36,7 +36,7 @@ def dashboard(request):
 
 def logout_view(request):
     logout(request)
-    return redirect('dashboard/landing_page')
+    return redirect('login')
 
 
 
