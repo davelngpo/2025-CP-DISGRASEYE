@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard | DisgrasEye</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            darkblue: '#0A192F',
+            sky: '#38BDF8',
+            gold: '#FCD34D',
+            alert: '#EF4444',
+            graylight: '#CBD5E1',
+            greenlight: '#22C55E',
+          }
+        }
+      }
+    }
+</script>
+</head>
+<body class="bg-darkblue text-graylight font-sans">
+
+<!-- Header -->
+<header class="flex justify-between items-center p-4 bg-[#091527] border-b border-sky/30">
+    <h1 class="text-xl font-bold text-sky flex items-center gap-2">
+        <i class="fas fa-exclamation-triangle text-alert"></i> DisgrasEye Dashboard
+    </h1>
+    <form action="{% url 'logout' %}" method="post">
+        {% csrf_token %}
+        <button type="submit" class="bg-alert hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition">
+            <i class="fas fa-sign-out-alt"></i> Logout
+        </button>
+    </form>
+</header>
+
+<div class="flex flex-col lg:flex-row min-h-screen">
+
+    <!-- Sidebar -->
+    <aside class="w-full lg:w-64 bg-[#0F172A] p-4 lg:min-h-screen">
+        <nav class="flex flex-row lg:flex-col gap-2 lg:gap-4 overflow-x-auto lg:overflow-x-visible">
+            <a href="#" class="flex items-center px-4 py-2 bg-sky rounded-lg hover:bg-sky/80 transition">
+                <i class="fas fa-home mr-3"></i><span class="hidden sm:inline">Dashboard</span>
+            </a>
+            <a href="#" class="flex items-center px-4 py-2 hover:bg-gray-800 rounded-lg transition">
+                <i class="fas fa-satellite-dish mr-3"></i><span class="hidden sm:inline">Live Monitoring</span>
+            </a>
+            <a href="#" class="flex items-center px-4 py-2 hover:bg-gray-800 rounded-lg transition">
+                <i class="fas fa-map-marked-alt mr-3"></i><span class="hidden sm:inline">Map View</span>
+            </a>
+            <a href="#" class="flex items-center px-4 py-2 hover:bg-gray-800 rounded-lg transition">
+                <i class="fas fa-chart-bar mr-3"></i><span class="hidden sm:inline">Reports</span>
+            </a>
+            <a href="#" class="flex items-center px-4 py-2 hover:bg-gray-800 rounded-lg transition">
+                <i class="fas fa-video mr-3"></i><span class="hidden sm:inline">Cameras</span>
+            </a>
+            <a href="#" class="flex items-center px-4 py-2 hover:bg-gray-800 rounded-lg transition">
+                <i class="fas fa-cog mr-3"></i><span class="hidden sm:inline">Settings</span>
+            </a>
+        </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-6 lg:p-8 bg-[#112240]">
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-[#1E293B] p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-gray-400">Accidents Today</p>
+                        <h2 class="text-3xl font-bold text-sky mt-2">3</h2>
+                    </div>
+                    <div class="bg-sky/20 p-3 rounded-lg">
+                        <i class="fas fa-car-crash text-sky text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-[#1E293B] p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-gray-400">Active Cameras</p>
+                        <h2 class="text-3xl font-bold text-gold mt-2">5</h2>
+                    </div>
+                    <div class="bg-gold/20 p-3 rounded-lg">
+                        <i class="fas fa-video text-gold text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-[#1E293B] p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-gray-400">Pending Alerts</p>
+                        <h2 class="text-3xl font-bold text-alert mt-2">2</h2>
+                    </div>
+                    <div class="bg-alert/20 p-3 rounded-lg">
+                        <i class="fas fa-exclamation-circle text-alert text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-[#1E293B] p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-gray-400">Responded Cases</p>
+                        <h2 class="text-3xl font-bold text-greenlight mt-2">7</h2>
+                    </div>
+                    <div class="bg-greenlight/20 p-3 rounded-lg">
+                        <i class="fas fa-check-circle text-greenlight text-xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Alerts Table -->
+        <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden">
+            <div class="p-6 border-b border-gray-600 flex items-center gap-2">
+                <i class="fas fa-calendar-alt text-sky"></i>
+                <h3 class="text-xl font-bold">Recent Alerts</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-[#112240]">
+                        <tr>
+                            <th class="py-3 px-4">Date</th>
+                            <th class="py-3 px-4">Location</th>
+                            <th class="py-3 px-4">Severity</th>
+                            <th class="py-3 px-4">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors">
+                            <td class="py-3 px-4">2025-10-25</td>
+                            <td class="py-3 px-4">Sta. Maria Crossing</td>
+                            <td class="py-3 px-4">
+                                <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-alert/50 text-alert">High</span>
+                            </td>
+                            <td class="py-3 px-4 text-alert flex items-center gap-1">
+                                <i class="fas fa-exclamation-triangle"></i> Pending
+                            </td>
+                        </tr>
+                        <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors">
+                            <td class="py-3 px-4">2025-10-24</td>
+                            <td class="py-3 px-4">Sta. Maria Bridge</td>
+                            <td class="py-3 px-4">
+                                <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gold/50 text-gold">Medium</span>
+                            </td>
+                            <td class="py-3 px-4 text-greenlight flex items-center gap-1">
+                                <i class="fas fa-check-circle"></i> Acknowledged
+                            </td>
+                        </tr>
+                        <tr class="hover:bg-gray-600/30 transition-colors">
+                            <td class="py-3 px-4">2025-10-23</td>
+                            <td class="py-3 px-4">Sta. Maria Market Road</td>
+                            <td class="py-3 px-4">
+                                <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-greenlight/50 text-greenlight">Low</span>
+                            </td>
+                            <td class="py-3 px-4 text-greenlight flex items-center gap-1">
+                                <i class="fas fa-check-circle"></i> Resolved
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+</body>
+</html>

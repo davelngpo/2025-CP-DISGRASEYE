@@ -134,3 +134,7 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 # Create media/uploads directory
 import os
 os.makedirs(os.path.join(MEDIA_ROOT, 'uploads'), exist_ok=True)
+
+LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/dashboard/'
+LOGOUT_REDIRECT_URL = '/'

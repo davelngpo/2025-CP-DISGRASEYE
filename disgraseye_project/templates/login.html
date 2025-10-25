@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login | DisgrasEye</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            darkblue: '#0A192F',
+            sky: '#38BDF8',
+            gold: '#FCD34D',
+            alert: '#EF4444',
+            graylight: '#CBD5E1',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background: linear-gradient(135deg, #0A192F, #112240, #1E293B);
+    }
+    .glow-text {
+      text-shadow: 0 0 10px #38BDF8;
+    }
+    .login-card {
+      backdrop-filter: blur(10px);
+      background-color: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+    }
+  </style>
+</head>
+
+<body class="h-screen flex items-center justify-center text-graylight font-sans">
+
+  <div class="login-card rounded-2xl shadow-xl p-8 w-[90%] max-w-md text-center">
+    <h1 class="text-3xl font-bold text-sky mb-2 glow-text flex justify-center items-center gap-2">
+      <i class="fas fa-eye"></i> DisgrasEye
+    </h1>
+    <p class="text-gray-400 mb-6 text-sm">Barangay Sta. Maria Smart Crash Detection</p>
+    <h2 class="text-xl font-semibold text-gold mb-6"><i class="fas fa-user-shield mr-2"></i>Admin Login</h2>
+
+    {% if messages %}
+      {% for message in messages %}
+        <div class="bg-alert/20 border border-alert/40 text-alert text-sm rounded-lg py-2 mb-4">
+          {{ message }}
+        </div>
+      {% endfor %}
+    {% endif %}
+
+    <form method="POST" class="flex flex-col items-center">
+      {% csrf_token %}
+      <input 
+        type="text" 
+        name="username" 
+        placeholder="Username"
+        required 
+        class="w-full bg-[#1E293B] border border-sky/30 rounded-lg px-4 py-3 text-gray-200 mb-4 focus:outline-none focus:border-gold"
+      >
+      <input 
+        type="password" 
+        name="password" 
+        placeholder="Password"
+        required 
+        class="w-full bg-[#1E293B] border border-sky/30 rounded-lg px-4 py-3 text-gray-200 mb-6 focus:outline-none focus:border-gold"
+      >
+      <button 
+        type="submit"
+        class="w-full bg-gold text-darkblue font-semibold py-3 rounded-lg hover:bg-yellow-400 transition"
+      >
+        <i class="fas fa-sign-in-alt mr-1"></i> Login
+      </button>
+    </form>
+
+    <a href="/" class="block mt-6 text-sky text-sm hover:text-gold transition">
+      <i class="fas fa-arrow-left mr-1"></i> Back to Home
+    </a>
+
+    <footer class="text-gray-500 text-xs mt-8">
+      © 2025 DisgrasEye | Barangay Sta. Maria
+    </footer>
+  </div>
+
+</body>
+</html>

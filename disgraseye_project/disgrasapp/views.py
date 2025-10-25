@@ -6,6 +6,10 @@ from django.conf import settings
 import os
 from datetime import datetime
 from .models import Detection
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.shortcuts import redirect
 
 # YOLOv8 imports (FREE - using Ultralytics)
 try:
@@ -158,3 +162,32 @@ def get_recent_detections(request):
     } for d in detections]
     
     return JsonResponse({'detections': data})
+
+def landing_page(request):
+    """Barangay Sta. Maria landing page"""
+    return render(request, 'landing_page.html')
+
+def login_view(request):
+    """Admin login"""
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        user = authenticate(request, username=username, password=password)
+        
+        if user is not None:
+            login(request, user)
+            return redirect('dashboard')
+        else:
+            messages.error(request, 'Invalid username or password')
+    
+    return render(request, 'login.html')
+
+@login_required
+def dashboard(request):
+    """Admin dashboard - requires login"""
+    return render(request, 'dashboard.html')
+
+def logout_view(request):
+    """Logout"""
+    logout(request)
+    return redirect('landing_page')
