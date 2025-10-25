@@ -136,5 +136,5 @@ import os
 os.makedirs(os.path.join(MEDIA_ROOT, 'uploads'), exist_ok=True)
 
 LOGIN_URL = '/login/'
-LOGIN_REDIRECT_URL = '/dashboard/'
+LOGIN_REDIRECT_URL = '/landing_page/'
 LOGOUT_REDIRECT_URL = '/'
