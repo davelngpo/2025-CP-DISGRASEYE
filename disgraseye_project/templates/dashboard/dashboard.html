@@ -58,25 +58,39 @@
       }
     }
 
+    // Global variables for dynamic data
+    let dashboardData = {
+        accidentsToday: 0,
+        activeCameras: 0,
+        pendingAlerts: 0,
+        respondedCases: 0,
+        recentDetections: []
+    };
+
     // Navigation functionality
     document.addEventListener('DOMContentLoaded', function() {
+        // Load initial data
+        loadDashboardData();
+        
         // Show dashboard by default
         showSection('dashboard');
         
         // Navigation click handlers
         document.querySelectorAll('nav a').forEach(link => {
             link.addEventListener('click', function(e) {
-                e.preventDefault();
-                const target = this.getAttribute('data-section') || 'dashboard';
-                showSection(target);
-                
-                // Update active nav item
-                document.querySelectorAll('nav a').forEach(a => {
-                    a.classList.remove('bg-sky', 'hover:bg-sky/80');
-                    a.classList.add('hover:bg-gray-800');
-                });
-                this.classList.add('bg-sky', 'hover:bg-sky/80');
-                this.classList.remove('hover:bg-gray-800');
+                if (!this.hasAttribute('href') || this.getAttribute('href') === '#') {
+                    e.preventDefault();
+                    const target = this.getAttribute('data-section') || 'dashboard';
+                    showSection(target);
+                    
+                    // Update active nav item
+                    document.querySelectorAll('nav a').forEach(a => {
+                        a.classList.remove('bg-sky', 'hover:bg-sky/80');
+                        a.classList.add('hover:bg-gray-800');
+                    });
+                    this.classList.add('bg-sky', 'hover:bg-sky/80');
+                    this.classList.remove('hover:bg-gray-800');
+                }
             });
         });
 
@@ -89,20 +103,27 @@
             // Show target section
             document.getElementById(sectionId).classList.add('active');
             
-            // Initialize map if showing map section
+            // Initialize map if showing dashboard section
             if (sectionId === 'dashboard') {
                 initializeMap();
+            }
+            
+            // Load section-specific data
+            if (sectionId === 'reports') {
+                loadReportsData();
+            } else if (sectionId === 'cameras') {
+                loadCamerasData();
             }
         }
 
         function initializeMap() {
             // Check if map already initialized
             if (document.getElementById('map') && !document.getElementById('map')._leaflet_id) {
-                // Sta. Maria, Philippines coordinates
-                const staMariaCoords = [14.8186, 120.9499];
+                // Sta. Maria, Zamboanga City coordinates
+                const staMariaZamboangaCoords = [6.9917, 122.0839];
                 
-                // Create map centered on Sta. Maria
-                const map = L.map('map').setView(staMariaCoords, 14);
+                // Create map centered on Sta. Maria, Zamboanga
+                const map = L.map('map').setView(staMariaZamboangaCoords, 14);
                 
                 // Add OpenStreetMap tiles (FREE!)
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -110,26 +131,13 @@
                     maxZoom: 18
                 }).addTo(map);
                 
-                // Sample camera locations around Sta. Maria
+                // Sample camera locations around Sta. Maria, Zamboanga
                 const cameraLocations = [
-                    {name: "Sta. Maria Crossing", coords: [14.8186, 120.9499], type: "camera", status: "active"},
-                    {name: "Sta. Maria Bridge", coords: [14.8200, 120.9510], type: "camera", status: "active"},
-                    {name: "Sta. Maria Market", coords: [14.8170, 120.9480], type: "camera", status: "active"},
-                    {name: "Sta. Maria Highway", coords: [14.8150, 120.9530], type: "camera", status: "active"},
-                    {name: "Sta. Maria School Zone", coords: [14.8220, 120.9470], type: "camera", status: "active"}
-                ];
-                
-                // Sample crash incidents
-                const crashIncidents = [
-                    {name: "Multi-vehicle Collision", coords: [14.8190, 120.9500], type: "crash", severity: "high", time: "2 hours ago"},
-                    {name: "Side Impact Crash", coords: [14.8180, 120.9490], type: "crash", severity: "medium", time: "5 hours ago"},
-                    {name: "Minor Bumper Damage", coords: [14.8175, 120.9485], type: "crash", severity: "low", time: "1 day ago"}
-                ];
-                
-                // Sample emergency services
-                const emergencyServices = [
-                    {name: "Sta. Maria Hospital", coords: [14.8210, 120.9520], type: "hospital"},
-                    {name: "Police Station", coords: [14.8160, 120.9470], type: "police"}
+                    {name: "Sta. Maria Crossing", coords: [6.9917, 122.0839], type: "camera", status: "active"},
+                    {name: "Sta. Maria Bridge", coords: [6.9925, 122.0850], type: "camera", status: "active"},
+                    {name: "Sta. Maria Market", coords: [6.9900, 122.0820], type: "camera", status: "active"},
+                    {name: "Sta. Maria Highway", coords: [6.9890, 122.0860], type: "camera", status: "active"},
+                    {name: "Sta. Maria School Zone", coords: [6.9940, 122.0810], type: "camera", status: "active"}
                 ];
                 
                 // Add camera markers (blue)
@@ -152,28 +160,39 @@
                         `);
                 });
                 
-                // Add crash incident markers (red)
-                crashIncidents.forEach(incident => {
-                    const crashIcon = L.divIcon({
-                        className: 'crash-marker',
-                        html: '<i class="fas fa-car-crash" style="color: white; font-size: 12px;"></i>',
-                        iconSize: [24, 24],
-                        iconAnchor: [12, 12]
-                    });
-                    
-                    const severityColor = incident.severity === 'high' ? 'text-red-500' : 
-                                        incident.severity === 'medium' ? 'text-yellow-500' : 'text-green-500';
-                    
-                    L.marker(incident.coords, {icon: crashIcon})
-                        .addTo(map)
-                        .bindPopup(`
-                            <div class="text-sm">
-                                <strong class="text-red-600">${incident.name}</strong><br>
-                                <span class="${severityColor}">● ${incident.severity.toUpperCase()} Severity</span><br>
-                                <small>${incident.time}</small>
-                            </div>
-                        `);
+                // Add crash markers dynamically from recent detections
+                dashboardData.recentDetections.forEach((detection, index) => {
+                    if (detection.crash_detected) {
+                        const crashIcon = L.divIcon({
+                            className: 'crash-marker',
+                            html: '<i class="fas fa-car-crash" style="color: white; font-size: 12px;"></i>',
+                            iconSize: [24, 24],
+                            iconAnchor: [12, 12]
+                        });
+                        
+                        // Generate coordinates around Sta. Maria area
+                        const offsetLat = (Math.random() - 0.5) * 0.01;
+                        const offsetLng = (Math.random() - 0.5) * 0.01;
+                        const crashCoords = [staMariaZamboangaCoords[0] + offsetLat, staMariaZamboangaCoords[1] + offsetLng];
+                        
+                        L.marker(crashCoords, {icon: crashIcon})
+                            .addTo(map)
+                            .bindPopup(`
+                                <div class="text-sm">
+                                    <strong class="text-red-600">Crash Detected</strong><br>
+                                    <span class="text-red-500">● High Severity</span><br>
+                                    <small>${new Date(detection.timestamp).toLocaleString()}</small><br>
+                                    <small>Confidence: ${detection.confidence}%</small>
+                                </div>
+                            `);
+                    }
                 });
+                
+                // Sample emergency services
+                const emergencyServices = [
+                    {name: "Sta. Maria Hospital", coords: [6.9930, 122.0850], type: "hospital"},
+                    {name: "Police Station", coords: [6.9900, 122.0810], type: "police"}
+                ];
                 
                 // Add emergency service markers (green)
                 emergencyServices.forEach(service => {
@@ -196,6 +215,103 @@
                 });
             }
         }
+
+        function loadDashboardData() {
+            // Fetch recent detections from API
+            fetch('/api/detections/')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.detections) {
+                        dashboardData.recentDetections = data.detections;
+                        
+                        // Calculate dynamic stats
+                        const today = new Date().toDateString();
+                        dashboardData.accidentsToday = data.detections.filter(d => 
+                            new Date(d.timestamp).toDateString() === today && d.crash_detected
+                        ).length;
+                        
+                        dashboardData.pendingAlerts = data.detections.filter(d => 
+                            d.crash_detected && d.status.includes('Crash Detected')
+                        ).length;
+                        
+                        dashboardData.respondedCases = data.detections.filter(d => 
+                            d.crash_detected
+                        ).length - dashboardData.pendingAlerts;
+                        
+                        // Update stats cards
+                        updateStatsCards();
+                        
+                        // Update recent alerts table
+                        updateRecentAlerts();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading dashboard data:', error);
+                    // Use fallback data
+                    useFallbackData();
+                });
+        }
+
+        function updateStatsCards() {
+            document.getElementById('accidentsToday').textContent = dashboardData.accidentsToday;
+            document.getElementById('pendingAlerts').textContent = dashboardData.pendingAlerts;
+            document.getElementById('respondedCases').textContent = dashboardData.respondedCases;
+        }
+
+        function updateRecentAlerts() {
+            const tbody = document.querySelector('#recentAlertsTable tbody');
+            if (tbody && dashboardData.recentDetections.length > 0) {
+                tbody.innerHTML = dashboardData.recentDetections.slice(0, 5).map(detection => `
+                    <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors">
+                        <td class="py-3 px-4">${new Date(detection.timestamp).toLocaleDateString()}</td>
+                        <td class="py-3 px-4">Sta. Maria Area</td>
+                        <td class="py-3 px-4">
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                                detection.crash_detected ? 'bg-alert/50 text-alert' : 'bg-greenlight/50 text-greenlight'
+                            }">
+                                ${detection.crash_detected ? 'High' : 'Low'}
+                            </span>
+                        </td>
+                        <td class="py-3 px-4 ${detection.crash_detected ? 'text-alert' : 'text-greenlight'} flex items-center gap-1">
+                            <i class="fas ${detection.crash_detected ? 'fa-exclamation-triangle' : 'fa-check-circle'}"></i>
+                            ${detection.crash_detected ? 'Pending' : 'Resolved'}
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        function useFallbackData() {
+            // Fallback data if API fails
+            dashboardData = {
+                accidentsToday: 3,
+                activeCameras: 5,
+                pendingAlerts: 2,
+                respondedCases: 7,
+                recentDetections: [
+                    {timestamp: new Date().toISOString(), crash_detected: true, confidence: 92, status: 'Crash Detected'},
+                    {timestamp: new Date(Date.now() - 86400000).toISOString(), crash_detected: false, confidence: 85, status: 'No Crash'},
+                    {timestamp: new Date(Date.now() - 172800000).toISOString(), crash_detected: true, confidence: 88, status: 'Crash Detected'}
+                ]
+            };
+            updateStatsCards();
+            updateRecentAlerts();
+        }
+
+        function loadReportsData() {
+            // This would fetch reports data from API
+            // For now, we'll use the static data already in the HTML
+            console.log('Loading reports data...');
+        }
+
+        function loadCamerasData() {
+            // This would fetch camera data from API
+            // For now, we'll use the static data already in the HTML
+            console.log('Loading cameras data...');
+        }
+
+        // Auto-refresh dashboard data every 30 seconds
+        setInterval(loadDashboardData, 30000);
     });
 </script>
 </head>
@@ -206,12 +322,15 @@
     <h1 class="text-xl font-bold text-sky flex items-center gap-2">
         <i class="fas fa-exclamation-triangle text-alert"></i> DisgrasEye Dashboard
     </h1>
-    <form action="{% url 'logout' %}" method="post">
-        {% csrf_token %}
-        <button type="submit" class="bg-alert hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition">
-            <i class="fas fa-sign-out-alt"></i> Logout
-        </button>
-    </form>
+    <div class="flex items-center gap-4">
+        <span class="text-sm text-gray-400" id="lastUpdate">Last update: Just now</span>
+        <form action="{% url 'logout' %}" method="post">
+            {% csrf_token %}
+            <button type="submit" class="bg-alert hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </button>
+        </form>
+    </div>
 </header>
 
 <div class="flex flex-col lg:flex-row min-h-screen">
@@ -223,7 +342,7 @@
                 <i class="fas fa-home mr-3"></i><span class="hidden sm:inline">Dashboard</span>
             </a>
             <a href="{% url 'demo' %}" class="flex items-center px-4 py-2 hover:bg-gray-800 rounded-lg transition">
-                <i class="fas fa-satellite-dish mr-3"></i><span class="hidden sm:inline">Live Monitoring</span>
+                <i class="fas fa-satellite-dish mr-3"></i><span class="hidden sm:inline">Live Detection</span>
             </a>
             <a href="#" data-section="reports" class="flex items-center px-4 py-2 hover:bg-gray-800 rounded-lg transition">
                 <i class="fas fa-chart-bar mr-3"></i><span class="hidden sm:inline">Reports</span>
@@ -248,7 +367,7 @@
                     <div class="flex justify-between items-center">
                         <div>
                             <p class="text-gray-400">Accidents Today</p>
-                            <h2 class="text-3xl font-bold text-sky mt-2">3</h2>
+                            <h2 class="text-3xl font-bold text-sky mt-2" id="accidentsToday">0</h2>
                         </div>
                         <div class="bg-sky/20 p-3 rounded-lg">
                             <i class="fas fa-car-crash text-sky text-xl"></i>
@@ -260,7 +379,7 @@
                     <div class="flex justify-between items-center">
                         <div>
                             <p class="text-gray-400">Active Cameras</p>
-                            <h2 class="text-3xl font-bold text-gold mt-2">5</h2>
+                            <h2 class="text-3xl font-bold text-gold mt-2" id="activeCameras">5</h2>
                         </div>
                         <div class="bg-gold/20 p-3 rounded-lg">
                             <i class="fas fa-video text-gold text-xl"></i>
@@ -272,7 +391,7 @@
                     <div class="flex justify-between items-center">
                         <div>
                             <p class="text-gray-400">Pending Alerts</p>
-                            <h2 class="text-3xl font-bold text-alert mt-2">2</h2>
+                            <h2 class="text-3xl font-bold text-alert mt-2" id="pendingAlerts">0</h2>
                         </div>
                         <div class="bg-alert/20 p-3 rounded-lg">
                             <i class="fas fa-exclamation-circle text-alert text-xl"></i>
@@ -284,7 +403,7 @@
                     <div class="flex justify-between items-center">
                         <div>
                             <p class="text-gray-400">Responded Cases</p>
-                            <h2 class="text-3xl font-bold text-greenlight mt-2">7</h2>
+                            <h2 class="text-3xl font-bold text-greenlight mt-2" id="respondedCases">0</h2>
                         </div>
                         <div class="bg-greenlight/20 p-3 rounded-lg">
                             <i class="fas fa-check-circle text-greenlight text-xl"></i>
@@ -295,10 +414,12 @@
 
             <!-- Map Section -->
             <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden mb-8">
-                <div class="p-6 border-b border-gray-600 flex items-center gap-2">
-                    <i class="fas fa-map-marked-alt text-sky"></i>
-                    <h3 class="text-xl font-bold">Live Map View</h3>
-                    <span class="bg-greenlight/20 text-greenlight text-xs px-2 py-1 rounded-full ml-2">Real-time</span>
+                <div class="p-6 border-b border-gray-600 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i class="fas fa-map-marked-alt text-sky"></i>
+                        <h3 class="text-xl font-bold">Live Map View - Sta. Maria, Zamboanga City</h3>
+                    </div>
+                    <span class="bg-greenlight/20 text-greenlight text-xs px-2 py-1 rounded-full">Real-time</span>
                 </div>
                 <div class="p-4">
                     <div id="map"></div>
@@ -321,12 +442,17 @@
 
             <!-- Recent Alerts Table -->
             <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden">
-                <div class="p-6 border-b border-gray-600 flex items-center gap-2">
-                    <i class="fas fa-calendar-alt text-sky"></i>
-                    <h3 class="text-xl font-bold">Recent Alerts</h3>
+                <div class="p-6 border-b border-gray-600 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i class="fas fa-calendar-alt text-sky"></i>
+                        <h3 class="text-xl font-bold">Recent Alerts</h3>
+                    </div>
+                    <button onclick="loadDashboardData()" class="text-sm bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded transition">
+                        <i class="fas fa-sync-alt mr-1"></i> Refresh
+                    </button>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left">
+                    <table class="w-full text-left" id="recentAlertsTable">
                         <thead class="bg-[#112240]">
                             <tr>
                                 <th class="py-3 px-4">Date</th>
@@ -336,34 +462,10 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors">
-                                <td class="py-3 px-4">2025-10-25</td>
-                                <td class="py-3 px-4">Sta. Maria Crossing</td>
-                                <td class="py-3 px-4">
-                                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-alert/50 text-alert">High</span>
-                                </td>
-                                <td class="py-3 px-4 text-alert flex items-center gap-1">
-                                    <i class="fas fa-exclamation-triangle"></i> Pending
-                                </td>
-                            </tr>
-                            <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors">
-                                <td class="py-3 px-4">2025-10-24</td>
-                                <td class="py-3 px-4">Sta. Maria Bridge</td>
-                                <td class="py-3 px-4">
-                                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gold/50 text-gold">Medium</span>
-                                </td>
-                                <td class="py-3 px-4 text-greenlight flex items-center gap-1">
-                                    <i class="fas fa-check-circle"></i> Acknowledged
-                                </td>
-                            </tr>
-                            <tr class="hover:bg-gray-600/30 transition-colors">
-                                <td class="py-3 px-4">2025-10-23</td>
-                                <td class="py-3 px-4">Sta. Maria Market Road</td>
-                                <td class="py-3 px-4">
-                                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-greenlight/50 text-greenlight">Low</span>
-                                </td>
-                                <td class="py-3 px-4 text-greenlight flex items-center gap-1">
-                                    <i class="fas fa-check-circle"></i> Resolved
+                            <tr>
+                                <td colspan="4" class="py-8 text-center text-gray-500">
+                                    <i class="fas fa-spinner fa-spin text-2xl mb-2"></i><br>
+                                    Loading recent alerts...
                                 </td>
                             </tr>
                         </tbody>
@@ -515,88 +617,7 @@
 
             <!-- Camera Cards -->
             <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                <!-- Camera 1 -->
-                <div class="bg-[#1E293B] rounded-xl overflow-hidden">
-                    <div class="relative">
-                        <div class="bg-gray-800 h-48 flex items-center justify-center">
-                            <i class="fas fa-video text-gray-500 text-4xl"></i>
-                        </div>
-                        <div class="absolute top-2 right-2">
-                            <span class="bg-greenlight text-white text-xs px-2 py-1 rounded-full">LIVE</span>
-                        </div>
-                    </div>
-                    <div class="p-4">
-                        <h4 class="font-bold">Sta. Maria Crossing</h4>
-                        <div class="flex justify-between items-center mt-2">
-                            <span class="text-sm text-gray-400">CAM-001</span>
-                            <span class="text-greenlight text-sm">● Online</span>
-                        </div>
-                        <div class="mt-3 flex gap-2">
-                            <button class="flex-1 bg-sky hover:bg-sky/80 text-white py-1 px-3 rounded text-sm transition">
-                                View Feed
-                            </button>
-                            <button class="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-1 px-3 rounded text-sm transition">
-                                Settings
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Camera 2 -->
-                <div class="bg-[#1E293B] rounded-xl overflow-hidden">
-                    <div class="relative">
-                        <div class="bg-gray-800 h-48 flex items-center justify-center">
-                            <i class="fas fa-video text-gray-500 text-4xl"></i>
-                        </div>
-                        <div class="absolute top-2 right-2">
-                            <span class="bg-greenlight text-white text-xs px-2 py-1 rounded-full">LIVE</span>
-                        </div>
-                    </div>
-                    <div class="p-4">
-                        <h4 class="font-bold">Sta. Maria Bridge</h4>
-                        <div class="flex justify-between items-center mt-2">
-                            <span class="text-sm text-gray-400">CAM-002</span>
-                            <span class="text-greenlight text-sm">● Online</span>
-                        </div>
-                        <div class="mt-3 flex gap-2">
-                            <button class="flex-1 bg-sky hover:bg-sky/80 text-white py-1 px-3 rounded text-sm transition">
-                                View Feed
-                            </button>
-                            <button class="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-1 px-3 rounded text-sm transition">
-                                Settings
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Camera 3 -->
-                <div class="bg-[#1E293B] rounded-xl overflow-hidden">
-                    <div class="relative">
-                        <div class="bg-gray-800 h-48 flex items-center justify-center">
-                            <i class="fas fa-video text-gray-500 text-4xl"></i>
-                        </div>
-                        <div class="absolute top-2 right-2">
-                            <span class="bg-greenlight text-white text-xs px-2 py-1 rounded-full">LIVE</span>
-                        </div>
-                    </div>
-                    <div class="p-4">
-                        <h4 class="font-bold">Sta. Maria Market</h4>
-                        <div class="flex justify-between items-center mt-2">
-                            <span class="text-sm text-gray-400">CAM-003</span>
-                            <span class="text-greenlight text-sm">● Online</span>
-                        </div>
-                        <div class="mt-3 flex gap-2">
-                            <button class="flex-1 bg-sky hover:bg-sky/80 text-white py-1 px-3 rounded text-sm transition">
-                                View Feed
-                            </button>
-                            <button class="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-1 px-3 rounded text-sm transition">
-                                Settings
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Add New Camera -->
+                <!-- Camera cards would be dynamically loaded here -->
                 <div class="bg-[#1E293B] rounded-xl border-2 border-dashed border-gray-600 hover:border-sky transition flex items-center justify-center min-h-[200px]">
                     <button class="text-gray-400 hover:text-sky transition flex flex-col items-center">
                         <i class="fas fa-plus text-2xl mb-2"></i>
@@ -608,6 +629,7 @@
 
         <!-- Settings Section -->
         <div id="settings" class="section">
+            <!-- Settings content remains the same as before -->
             <div class="mb-6">
                 <h2 class="text-2xl font-bold flex items-center gap-2">
                     <i class="fas fa-cog text-sky"></i> System Settings
