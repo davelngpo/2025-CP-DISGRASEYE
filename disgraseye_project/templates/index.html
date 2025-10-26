@@ -170,10 +170,21 @@
                     <div id="resultAlert" class="rounded-lg p-6 mb-6"></div>
                     
                     <!-- Media Preview Container -->
-                    <div class="mb-6">
-                        <div id="imagePreview" class="hidden">
-                            <img id="resultImage" class="w-full rounded-lg shadow-lg" alt="Detection Result">
-                        </div>
+                    <!-- Media Preview Container -->
+<div class="mb-6">
+    <!-- Color Legend -->
+    <div class="bg-gray-900 dark:bg-gray-800 p-4 rounded-t-lg border-b-2 border-purple-500">
+        <p class="text-white text-sm font-semibold mb-2">🎨 Bounding Box Color Guide:</p>
+        <div class="flex flex-wrap gap-4 text-sm">
+            <span class="text-green-400">● Green = Normal Vehicles</span>
+            <span class="text-red-400">● Red = Crash Detected</span>
+        </div>
+        <p class="text-gray-400 text-xs mt-2">Each vehicle type has different shade of green when normal</p>
+    </div>
+    
+    <div id="imagePreview" class="hidden">
+        <img id="resultImage" class="w-full rounded-b-lg shadow-lg" alt="Detection Result">
+    </div>
                         <div id="videoPreview" class="hidden video-container">
                             <video id="resultVideo" class="video-player" controls>
                                 Your browser does not support the video tag.
@@ -377,18 +388,12 @@
             }
             
             // Show appropriate media preview
-            if (data.image_path) {
-                if (isVideo) {
-                    // For videos, show the video player
-                    videoPreview.classList.remove('hidden');
-                    resultVideo.src = data.image_path;
-                    setupVideoControls();
-                } else {
-                    // For images, show the image
-                    imagePreview.classList.remove('hidden');
-                    document.getElementById('resultImage').src = data.image_path;
-                }
-            }
+if (data.image_path) {
+    // Always show as image (for videos, we show the analyzed frame)
+    imagePreview.classList.remove('hidden');
+    videoPreview.classList.add('hidden');
+    document.getElementById('resultImage').src = data.image_path;
+}
             
             // Reload recent detections to include the new one
             loadRecentDetections();

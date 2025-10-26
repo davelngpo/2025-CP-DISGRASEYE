@@ -167,53 +167,43 @@ def process_image_detection(image_path, original_filepath):
 
 def process_video_detection(video_path, original_filepath):
     """
-    Process video for crash detection and create annotated video with bounding boxes
+    Process video - analyze multiple frames to detect actual crashes
     """
-    import tempfile
-    import shutil
+    print(f"🎥 Processing video: {video_path}")
     
-    # Create temporary directory for processing
-    temp_dir = tempfile.mkdtemp()
+    cap = cv2.VideoCapture(video_path)
     
-    try:
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise Exception("Could not open video file")
+    if not cap.isOpened():
+        raise Exception("Could not open video file")
+    
+    # Get video properties
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    
+    print(f"📊 Video info: {total_frames} frames at {fps} FPS")
+    
+    # Analyze frames at intervals (every 0.5 seconds)
+    frame_interval = max(1, int(fps * 0.5))
+    frames_to_check = list(range(0, total_frames, frame_interval))[:20]  # Check up to 20 frames
+    
+    all_detections = []
+    crash_frames = []
+    
+    for frame_num in frames_to_check:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+        ret, frame = cap.read()
         
-        # Get video properties
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if not ret:
+            continue
         
-        # Create output video path
-        output_video_path = os.path.join(temp_dir, f"annotated_{os.path.basename(video_path)}")
+        # Run detection on frame
+        results = model(frame, conf=0.4, verbose=False)  # Higher confidence for videos
         
-        # Define codec and create VideoWriter
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
+        vehicle_classes = [2, 3, 5, 7]
+        class_names = {2: "Car", 3: "Motorcycle", 5: "Bus", 7: "Truck"}
         
-        crash_frames = []
-        vehicle_history = []
-        max_confidence = 0.0
-        frame_count = 0
-        max_frames = min(100, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))  # Process up to 100 frames
-        
-        while frame_count < max_frames:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Convert frame to RGB for YOLO
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            # Run YOLO detection
-            results = model(frame_rgb, conf=0.3)
-            result = results[0]
-            
-            vehicle_classes = [2, 3, 5, 7]
-            vehicles = []
-            
-            # Process detections
+        vehicles = []
+        for result in results:
             for box in result.boxes:
                 cls = int(box.cls[0])
                 conf = float(box.conf[0])
@@ -222,70 +212,83 @@ def process_video_detection(video_path, original_filepath):
                     bbox = box.xyxy[0].cpu().numpy()
                     vehicles.append({
                         'class': cls,
+                        'class_name': class_names[cls],
                         'confidence': conf,
                         'bbox': bbox,
                         'center': calculate_center(bbox)
                     })
-                    max_confidence = max(max_confidence, conf * 100)
-            
-            # Check for crashes in this frame
-            if len(vehicles) >= 2:
-                crash_detected, crash_reason = check_crash_conditions(vehicles)
-                if crash_detected:
-                    crash_frames.append({
-                        'frame': frame_count,
-                        'reason': crash_reason,
-                        'vehicles': vehicles
-                    })
-            
-            vehicle_history.append(vehicles)
-            
-            # Draw bounding boxes on frame
-            annotated_frame = draw_bounding_boxes(frame, vehicles, len(crash_frames) > 0)
-            out.write(annotated_frame)
-            
-            frame_count += 1
         
-        cap.release()
-        out.release()
+        all_detections.append({
+            'frame': frame_num,
+            'vehicles': vehicles,
+            'vehicle_count': len(vehicles)
+        })
         
-        # Determine overall crash detection
-        crash_detected = len(crash_frames) > 0
-        crash_reason = crash_frames[0]['reason'] if crash_frames else ""
-        
-        # Save the annotated video to media directory
-        final_video_filename = f"annotated_{os.path.basename(video_path)}"
-        final_video_path = os.path.join(settings.MEDIA_ROOT, 'uploads', final_video_filename)
-        
-        # Copy the processed video to media directory
-        shutil.copy2(output_video_path, final_video_path)
-        
-        # Also create a preview image from first crash frame or first frame
-        if crash_frames:
-            preview_frame_num = crash_frames[0]['frame']
-        else:
-            preview_frame_num = 0
-            
-        preview_image_path = create_preview_image_from_frame(video_path, preview_frame_num, 
-                                                           crash_frames[0]['vehicles'] if crash_frames else [], 
-                                                           crash_detected)
-        
-        return {
-            'crash_detected': crash_detected,
-            'status': 'Crash Detected' if crash_detected else 'No Crash',
-            'confidence': round(max_confidence, 2),
-            'vehicle_count': len(vehicle_history[0]) if vehicle_history else 0,
-            'crash_reason': crash_reason,
-            'annotated_path': f"/media/uploads/{final_video_filename}",
-            'image_path': f"/media/{preview_image_path}"  # For backward compatibility
-        }
-        
-    except Exception as e:
-        raise e
-    finally:
-        # Clean up temporary directory
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        # Check for crash in this frame
+        if len(vehicles) >= 2:
+            crash_detected, crash_reason = check_crash_conditions(vehicles)
+            if crash_detected:
+                crash_frames.append({
+                    'frame': frame_num,
+                    'reason': crash_reason,
+                    'vehicles': vehicles,
+                    'timestamp': frame_num / fps
+                })
+                print(f"⚠️ Crash detected at frame {frame_num} ({frame_num/fps:.1f}s)")
+    
+    cap.release()
+    
+    # Determine if there's a real crash
+    crash_detected = len(crash_frames) > 0
+    
+    # If crash detected, use that frame, otherwise use middle frame
+    if crash_detected:
+        target_frame = crash_frames[0]['frame']
+        crash_reason = crash_frames[0]['reason']
+        vehicles = crash_frames[0]['vehicles']
+        print(f"✅ Confirmed crash at frame {target_frame}")
+    else:
+        # Use frame with most vehicles for analysis
+        target_detection = max(all_detections, key=lambda x: x['vehicle_count'])
+        target_frame = target_detection['frame']
+        vehicles = target_detection['vehicles']
+        crash_reason = ""
+        print(f"✅ No crash detected, showing frame {target_frame}")
+    
+    # Extract and annotate the target frame
+    cap = cv2.VideoCapture(video_path)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+    ret, frame = cap.read()
+    cap.release()
+    
+    if not ret:
+        raise Exception("Could not extract frame")
+    
+    # Save and annotate frame
+    frame_filename = f"frame_{target_frame}_{os.path.basename(video_path)}.jpg"
+    frame_path = os.path.join(settings.MEDIA_ROOT, 'uploads', frame_filename)
+    cv2.imwrite(frame_path, frame)
+    
+    # Create annotated image
+    # Option A: annotate the saved frame using the existing PIL-based function
+    annotated_path = create_annotated_image(frame_path, vehicles, crash_detected)
 
+    # Option B: annotate directly from the video/frame number
+    # annotated_path = create_annotated_image_from_frame(video_path, target_frame, vehicles, crash_detected)
+    
+    # Calculate stats
+    max_confidence = max([v['confidence'] * 100 for v in vehicles]) if vehicles else 0.0
+    
+    return {
+        'crash_detected': crash_detected,
+        'status': 'Crash Detected' if crash_detected else 'No Crash',
+        'confidence': round(max_confidence, 2),
+        'vehicle_count': len(vehicles),
+        'crash_reason': crash_reason,
+        'annotated_path': f"/media/{annotated_path}",
+        'frame_analyzed': target_frame,
+        'total_frames': total_frames
+    }
 
 def draw_bounding_boxes(frame, vehicles, crash_detected):
     """
@@ -372,16 +375,41 @@ def calculate_center(bbox):
 
 def check_crash_conditions(vehicles):
     """
-    Check various conditions that might indicate a crash
+    Improved crash detection logic
+    Only detects REAL crashes, not normal traffic
     """
-    # 1. Check vehicle proximity
+    if len(vehicles) < 2:
+        return False, ""
+    
+    # Calculate average distance between all vehicles
+    distances = []
     for i in range(len(vehicles)):
         for j in range(i + 1, len(vehicles)):
             dist = calculate_distance(vehicles[i]['center'], vehicles[j]['center'])
-            
-            # If vehicles are very close, potential collision
-            if dist < 100:  # pixels threshold
-                return True, "Vehicles in close proximity - possible collision"
+            distances.append(dist)
+    
+    if not distances:
+        return False, ""
+    
+    avg_distance = sum(distances) / len(distances)
+    min_distance = min(distances)
+    
+    # STRICT crash criteria:
+    # 1. At least 2 vehicles EXTREMELY close (overlapping)
+    # 2. Much closer than average traffic distance
+    
+    # Very strict threshold for actual crashes
+    CRASH_THRESHOLD = 50  # pixels - vehicles must be overlapping
+    
+    if min_distance < CRASH_THRESHOLD:
+        # Check if this is actually unusual (not just normal traffic)
+        if min_distance < avg_distance * 0.3:  # 30% of average distance
+            return True, f"Collision detected: vehicles {min_distance:.0f}px apart (critical proximity)"
+    
+    # Additional check: 3+ vehicles in very tight cluster
+    tight_cluster = sum(1 for d in distances if d < 80)
+    if tight_cluster >= 3 and min_distance < 60:
+        return True, f"Multi-vehicle collision detected ({tight_cluster} vehicles in tight cluster)"
     
     return False, ""
 
@@ -579,3 +607,4 @@ def get_recent_detections(request):
     
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+    
