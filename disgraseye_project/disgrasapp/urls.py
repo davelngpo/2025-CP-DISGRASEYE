@@ -12,4 +12,5 @@ urlpatterns = [
 
     path('detect/', views.detect_crash, name='detect_crash'),
     path('demo/', views.index, name='demo'),
+    path('api/detections/', views.get_recent_detections, name='recent_detections'),
 ]

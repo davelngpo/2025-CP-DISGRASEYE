@@ -111,3 +111,5 @@ $RECYCLE.BIN/
 *.tmp
 temp/
 tmp/
+*.mp4
+*.jpg

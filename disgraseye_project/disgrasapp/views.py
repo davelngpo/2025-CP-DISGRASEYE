@@ -99,16 +99,18 @@ def detect_crash(request):
         )
         
         return JsonResponse({
-            'success': True,
-            'crash_detected': result['crash_detected'],
-            'status': result['status'],
-            'confidence': result['confidence'],
-            'timestamp': detection.timestamp.isoformat(),
-            'image_path': detection.image_path,
-            'detection_id': detection.id,
-            'vehicle_count': result.get('vehicle_count', 0),
-            'crash_reason': result.get('crash_reason', '')
-        })
+    'success': True,
+    'crash_detected': result['crash_detected'],
+    'status': result['status'],
+    'confidence': result['confidence'],
+    'timestamp': detection.timestamp.isoformat(),
+    'image_path': detection.image_path,
+    'detection_id': detection.id,
+    'vehicle_count': result.get('vehicle_count', 0),
+    'crash_reason': result.get('crash_reason', ''),
+    'is_video': result.get('is_video', False),  # ADD THIS LINE
+    'total_frames': result.get('total_frames', 0)  # ADD THIS LINE
+})
         
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
@@ -165,9 +167,12 @@ def process_image_detection(image_path, original_filepath):
         'annotated_path': f"/media/{annotated_path}"
     }
 
+# Replace your process_video_detection function with this
+
 def process_video_detection(video_path, original_filepath):
     """
-    Process video - analyze multiple frames to detect actual crashes
+    Process entire video and create annotated video with bounding boxes
+    Returns annotated VIDEO with web-compatible format
     """
     print(f"🎥 Processing video: {video_path}")
     
@@ -177,196 +182,174 @@ def process_video_detection(video_path, original_filepath):
         raise Exception("Could not open video file")
     
     # Get video properties
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    print(f"📊 Video info: {total_frames} frames at {fps} FPS")
+    print(f"📊 Video: {total_frames} frames, {fps} FPS, {width}x{height}")
     
-    # Analyze frames at intervals (every 0.5 seconds)
-    frame_interval = max(1, int(fps * 0.5))
-    frames_to_check = list(range(0, total_frames, frame_interval))[:20]  # Check up to 20 frames
+    # Create output video filename - use .mp4 extension
+    original_name = os.path.basename(video_path)
+    name_without_ext = os.path.splitext(original_name)[0]
+    output_filename = f"annotated_{name_without_ext}.mp4"
+    output_path = os.path.join(settings.MEDIA_ROOT, 'uploads', output_filename)
     
-    all_detections = []
-    crash_frames = []
+    # Try different codecs for better browser compatibility
+    # Try H.264 codec first (most compatible)
+    fourcc = cv2.VideoWriter_fourcc(*'avc1')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     
-    for frame_num in frames_to_check:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+    # If H.264 fails, try MP4V
+    if not out.isOpened():
+        print("🔄 Trying MP4V codec...")
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    # If still fails, use XVID (should work on most systems)
+    if not out.isOpened():
+        print("🔄 Trying XVID codec...")
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    if not out.isOpened():
+        raise Exception("Could not create video writer with any codec")
+    
+    crash_detected = False
+    crash_reasons = []
+    all_vehicles = []
+    frame_count = 0
+    max_confidence = 0.0
+    
+    print(f"⚙️ Processing frames...")
+    
+    while True:
         ret, frame = cap.read()
-        
         if not ret:
-            continue
+            break
         
-        # Run detection on frame
-        results = model(frame, conf=0.4, verbose=False)  # Higher confidence for videos
+        # Run YOLOv8 on this frame
+        results = model(frame, conf=0.45, verbose=False)
+        result = results[0]
         
+        # Extract vehicles from detections
         vehicle_classes = [2, 3, 5, 7]
         class_names = {2: "Car", 3: "Motorcycle", 5: "Bus", 7: "Truck"}
         
-        vehicles = []
-        for result in results:
-            for box in result.boxes:
-                cls = int(box.cls[0])
-                conf = float(box.conf[0])
-                
-                if cls in vehicle_classes:
-                    bbox = box.xyxy[0].cpu().numpy()
-                    vehicles.append({
-                        'class': cls,
-                        'class_name': class_names[cls],
-                        'confidence': conf,
-                        'bbox': bbox,
-                        'center': calculate_center(bbox)
-                    })
+        frame_vehicles = []
         
-        all_detections.append({
-            'frame': frame_num,
-            'vehicles': vehicles,
-            'vehicle_count': len(vehicles)
-        })
+        for box in result.boxes:
+            cls = int(box.cls[0])
+            conf = float(box.conf[0])
+            
+            if cls in vehicle_classes:
+                bbox = box.xyxy[0].cpu().numpy()
+                frame_vehicles.append({
+                    'class': cls,
+                    'class_name': class_names[cls],
+                    'confidence': conf,
+                    'bbox': bbox,
+                    'center': calculate_center(bbox)
+                })
+                max_confidence = max(max_confidence, conf * 100)
         
         # Check for crash in this frame
-        if len(vehicles) >= 2:
-            crash_detected, crash_reason = check_crash_conditions(vehicles)
-            if crash_detected:
-                crash_frames.append({
-                    'frame': frame_num,
-                    'reason': crash_reason,
-                    'vehicles': vehicles,
-                    'timestamp': frame_num / fps
-                })
-                print(f"⚠️ Crash detected at frame {frame_num} ({frame_num/fps:.1f}s)")
+        frame_crash = False
+        if len(frame_vehicles) >= 2:
+            frame_crash, reason = check_crash_conditions(frame_vehicles)
+            if frame_crash and not crash_detected:
+                crash_detected = True
+                crash_reasons.append(f"Frame {frame_count}: {reason}")
+                print(f"  🚨 Crash detected at frame {frame_count}")
+        
+        # Draw bounding boxes on frame
+        annotated_frame = draw_bounding_boxes(frame, frame_vehicles, frame_crash)
+        
+        # Write annotated frame to output video
+        out.write(annotated_frame)
+        
+        all_vehicles.extend(frame_vehicles)
+        frame_count += 1
+        
+        # Progress indicator
+        if frame_count % 30 == 0:
+            print(f"  ⏳ Processed {frame_count}/{total_frames} frames...")
     
     cap.release()
+    out.release()
     
-    # Determine if there's a real crash
-    crash_detected = len(crash_frames) > 0
+    print(f"✅ Video processing complete: {frame_count} frames")
+    print(f"📹 Output saved to: {output_path}")
     
-    # If crash detected, use that frame, otherwise use middle frame
-    if crash_detected:
-        target_frame = crash_frames[0]['frame']
-        crash_reason = crash_frames[0]['reason']
-        vehicles = crash_frames[0]['vehicles']
-        print(f"✅ Confirmed crash at frame {target_frame}")
-    else:
-        # Use frame with most vehicles for analysis
-        target_detection = max(all_detections, key=lambda x: x['vehicle_count'])
-        target_frame = target_detection['frame']
-        vehicles = target_detection['vehicles']
-        crash_reason = ""
-        print(f"✅ No crash detected, showing frame {target_frame}")
+    # Calculate overall statistics
+    avg_vehicles = len(all_vehicles) / frame_count if frame_count > 0 else 0
+    crash_reason = crash_reasons[0] if crash_reasons else ""
     
-    # Extract and annotate the target frame
-    cap = cv2.VideoCapture(video_path)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
-    ret, frame = cap.read()
-    cap.release()
-    
-    if not ret:
-        raise Exception("Could not extract frame")
-    
-    # Save and annotate frame
-    frame_filename = f"frame_{target_frame}_{os.path.basename(video_path)}.jpg"
-    frame_path = os.path.join(settings.MEDIA_ROOT, 'uploads', frame_filename)
-    cv2.imwrite(frame_path, frame)
-    
-    # Create annotated image
-    # Option A: annotate the saved frame using the existing PIL-based function
-    annotated_path = create_annotated_image(frame_path, vehicles, crash_detected)
-
-    # Option B: annotate directly from the video/frame number
-    # annotated_path = create_annotated_image_from_frame(video_path, target_frame, vehicles, crash_detected)
-    
-    # Calculate stats
-    max_confidence = max([v['confidence'] * 100 for v in vehicles]) if vehicles else 0.0
-    
+    # Return the correct media URL path
     return {
         'crash_detected': crash_detected,
         'status': 'Crash Detected' if crash_detected else 'No Crash',
         'confidence': round(max_confidence, 2),
-        'vehicle_count': len(vehicles),
+        'vehicle_count': int(avg_vehicles),
         'crash_reason': crash_reason,
-        'annotated_path': f"/media/{annotated_path}",
-        'frame_analyzed': target_frame,
-        'total_frames': total_frames
+        'annotated_path': f"/media/uploads/{output_filename}",
+        'is_video': True,
+        'total_frames': frame_count
     }
-
 def draw_bounding_boxes(frame, vehicles, crash_detected):
     """
-    Draw bounding boxes directly on OpenCV frame
+    Draw bounding boxes on video frame
+    GREEN for normal, RED for crash
     """
-    # Define colors (BGR format for OpenCV)
-    crash_color = (0, 0, 255)  # Red for crash
-    normal_color = (0, 255, 0)  # Green for normal
-    text_color = (255, 255, 255)  # White text
+    # Colors (BGR)
+    vehicle_colors = {
+        2: (0, 255, 0),      # Car - Green
+        3: (0, 200, 0),      # Motorcycle - Dark Green
+        5: (0, 255, 100),    # Bus - Light Green
+        7: (0, 180, 0)       # Truck - Medium Green
+    }
     
-    # Class names
-    class_names = {2: "Car", 3: "Motorcycle", 5: "Bus", 7: "Truck"}
+    crash_color = (0, 0, 255)  # Red
     
     for vehicle in vehicles:
-        # Choose color based on crash detection
-        color = crash_color if crash_detected else normal_color
+        # Choose color
+        if crash_detected:
+            color = crash_color
+        else:
+            color = vehicle_colors.get(vehicle['class'], (0, 255, 0))
         
-        # Get bounding box coordinates
+        # Get bbox
         bbox = vehicle['bbox'].astype(int)
         x1, y1, x2, y2 = bbox
         
-        # Draw bounding box
+        # Draw box
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
         
-        # Draw label background
-        class_name = class_names.get(vehicle['class'], "Vehicle")
-        confidence = vehicle['confidence']
-        label = f"{class_name} {confidence:.2f}"
+        # Label
+        label = f"{vehicle['class_name']} {vehicle['confidence']:.2f}"
         
-        # Get text size
-        (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        # Label background
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        thickness = 2
+        (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
         
-        # Draw label background rectangle
-        cv2.rectangle(frame, (x1, y1 - text_height - 10), (x1 + text_width + 10, y1), color, -1)
+        cv2.rectangle(frame, (x1, y1 - text_height - 10), 
+                     (x1 + text_width + 10, y1), color, -1)
         
-        # Draw label text
-        cv2.putText(frame, label, (x1 + 5, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 2)
+        cv2.putText(frame, label, (x1 + 5, y1 - 5), 
+                   font, font_scale, (255, 255, 255), thickness)
     
-    # Add status text
-    status_text = "CRASH DETECTED!" if crash_detected else "No Crash - Normal"
-    status_color = crash_color if crash_detected else normal_color
+    # Status banner
+    status_text = "🚨 CRASH DETECTED!" if crash_detected else f"✓ Monitoring - {len(vehicles)} vehicles"
+    status_color = crash_color if crash_detected else (0, 255, 0)
     
-    # Draw status background
-    (status_width, status_height), baseline = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 3)
-    cv2.rectangle(frame, (10, 10), (status_width + 30, 60), status_color, -1)
-    
-    # Draw status text
-    cv2.putText(frame, status_text, (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1, text_color, 3)
+    # Banner background
+    cv2.rectangle(frame, (10, 10), (500, 60), status_color, -1)
+    cv2.putText(frame, status_text, (20, 45), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
     
     return frame
-
-
-def create_preview_image_from_frame(video_path, frame_number, vehicles, crash_detected):
-    """
-    Extract and annotate a specific frame for preview
-    """
-    cap = cv2.VideoCapture(video_path)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-    ret, frame = cap.read()
-    
-    if ret:
-        # Draw bounding boxes on the frame
-        annotated_frame = draw_bounding_boxes(frame, vehicles, crash_detected)
-        
-        # Convert back to RGB for PIL
-        annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-        image = Image.fromarray(annotated_frame_rgb)
-        
-        # Save preview image
-        preview_filename = f"preview_{frame_number}_{os.path.basename(video_path)}.jpg"
-        preview_path = os.path.join(settings.MEDIA_ROOT, 'uploads', preview_filename)
-        image.save(preview_path)
-        
-        cap.release()
-        return f"uploads/{preview_filename}"
-    
-    cap.release()
-    return ""
 
 def calculate_center(bbox):
     """Calculate center point of bounding box"""
@@ -592,19 +575,43 @@ def get_recent_detections(request):
     API endpoint to fetch recent detections for dashboard
     """
     try:
-        detections = Detection.objects.all().order_by('-timestamp')[:10]
+        offset = int(request.GET.get('offset', 0))
+        limit = int(request.GET.get('limit', 5))
         
-        data = [{
-            'id': d.id,
-            'timestamp': d.timestamp.isoformat(),
-            'status': d.status,
-            'confidence': d.confidence,
-            'crash_detected': d.crash_detected,
-            'image_path': d.image_path
-        } for d in detections]
+        # Get all detections ordered by newest first
+        all_detections = Detection.objects.all().order_by('-timestamp')
         
-        return JsonResponse({'detections': data})
-    
+        # Apply pagination
+        start = offset
+        end = offset + limit
+        detections_page = all_detections[start:end]
+        
+        detections_list = []
+        for detection in detections_page:
+            # Check if it's a video by file extension
+            is_video = False
+            if detection.image_path:
+                video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm']
+                is_video = any(detection.image_path.lower().endswith(ext) for ext in video_extensions)
+            
+            detections_list.append({
+                'id': detection.id,
+                'detection_id': detection.id,
+                'timestamp': detection.timestamp.isoformat(),
+                'status': detection.status,
+                'confidence': detection.confidence,
+                'crash_detected': detection.crash_detected,
+                'image_path': detection.image_path,
+                'vehicle_count': getattr(detection, 'vehicle_count', 0),
+                'crash_reason': getattr(detection, 'crash_reason', ''),
+                'is_video': is_video
+            })
+        
+        return JsonResponse({
+            'detections': detections_list,
+            'has_more': len(all_detections) > end,
+            'total': all_detections.count()
+        })
+        
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
-    
