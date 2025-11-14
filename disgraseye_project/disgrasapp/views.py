@@ -10,22 +10,6 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 
-# YOLOv8 imports
-try:
-    from ultralytics import YOLO
-    import cv2
-    import numpy as np
-    from PIL import Image, ImageDraw
-    import math
-    YOLO_AVAILABLE = True
-except ImportError:
-    YOLO_AVAILABLE = False
-
-# Initialize YOLOv8 model
-if YOLO_AVAILABLE:
-    model = YOLO('yolov8n.pt')
-else:
-    model = None
 
 # Authentication Views
 def landing_page(request):
@@ -49,6 +33,18 @@ def login_view(request):
 def dashboard(request):
     return render(request, 'dashboard/dashboard.html')
 
+@login_required
+def cctv_monitoring(request):
+    return render(request, 'dashboard/cctv_monitoring.html')
+
+@login_required
+def reports(request):
+    return render(request, 'dashboard/reports.html')
+
+@login_required
+def settings(request):
+    return render(request, 'dashboard/settings.html')
+
 def logout_view(request):
     logout(request)
     return redirect('login')
@@ -56,6 +52,38 @@ def logout_view(request):
 @login_required
 def index(request):
     return render(request, 'index.html')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# YOLOv8 imports
+try:
+    from ultralytics import YOLO
+    import cv2
+    import numpy as np
+    from PIL import Image, ImageDraw
+    import math
+    YOLO_AVAILABLE = True
+except ImportError:
+    YOLO_AVAILABLE = False
+
+# Initialize YOLOv8 model
+if YOLO_AVAILABLE:
+    model = YOLO('yolov8n.pt')
+else:
+    model = None
+
 
 # Crash Detection Views
 @csrf_exempt

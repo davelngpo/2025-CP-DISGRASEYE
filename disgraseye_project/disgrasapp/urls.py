@@ -8,7 +8,10 @@ urlpatterns = [
     path('dashboard/', views.dashboard, name='dashboard'),
     path('logout/', views.logout_view, name='logout'),
 
-
+    # Dashboard sections
+    path('dashboard/cctv/', views.cctv_monitoring, name='cctv_monitoring'),
+    path('dashboard/reports/', views.reports, name='reports'),
+    path('dashboard/settings/', views.settings, name='settings'),
 
     path('detect/', views.detect_crash, name='detect_crash'),
     path('demo/', views.index, name='demo'),

@@ -1,0 +1,36 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Settings | DisgrasEye{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h2 class="text-2xl font-bold flex items-center gap-2">
+        <i class="bi bi-gear text-sky"></i> System Settings
+    </h2>
+    <p class="text-gray-400 mt-2">Configure system preferences and user management</p>
+</div>
+
+<div class="bg-[#1E293B] rounded-xl p-8 text-center">
+    <i class="bi bi-gear text-6xl text-gray-500 mb-4"></i>
+    <h3 class="text-2xl font-bold text-gray-400 mb-2">System Settings</h3>
+    <p class="text-gray-500 text-lg">System configuration features coming soon...</p>
+    <div class="mt-6 flex justify-center gap-4">
+        <div class="text-center">
+            <i class="bi bi-bell text-sky text-2xl mb-2"></i>
+            <p class="text-sm text-gray-400">Notifications</p>
+        </div>
+        <div class="text-center">
+            <i class="bi bi-sliders text-greenlight text-2xl mb-2"></i>
+            <p class="text-sm text-gray-400">Preferences</p>
+        </div>
+        <div class="text-center">
+            <i class="bi bi-shield-check text-gold text-2xl mb-2"></i>
+            <p class="text-sm text-gray-400">Security</p>
+        </div>
+        <div class="text-center">
+            <i class="bi bi-person-circle text-alert text-2xl mb-2"></i>
+            <p class="text-sm text-gray-400">Account</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,280 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}Reports | DisgrasEye{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let charts = {};
+
+document.addEventListener('DOMContentLoaded', function() {
+    initializeCharts();
+});
+
+function initializeCharts() {
+    // Monthly Crash Trends Chart
+    const monthlyCtx = document.getElementById('monthlyCrashChart');
+    if (monthlyCtx) {
+        charts.monthlyCrashChart = new Chart(monthlyCtx, {
+            type: 'line',
+            data: {
+                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                datasets: [{
+                    label: 'Crashes Detected',
+                    data: [12, 19, 15, 25, 22, 30, 28, 26, 24, 20, 18, 22],
+                    borderColor: '#38BDF8',
+                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: { color: '#CBD5E1' }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(203, 213, 225, 0.1)' },
+                        ticks: { color: '#CBD5E1' }
+                    },
+                    x: {
+                        grid: { color: 'rgba(203, 213, 225, 0.1)' },
+                        ticks: { color: '#CBD5E1' }
+                    }
+                }
+            }
+        });
+    }
+
+    // Crash Type Distribution Chart
+    const crashTypeCtx = document.getElementById('crashTypeChart');
+    if (crashTypeCtx) {
+        charts.crashTypeChart = new Chart(crashTypeCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Rear-end', 'Side-impact', 'Head-on', 'Rollover', 'Other'],
+                datasets: [{
+                    data: [45, 25, 15, 10, 5],
+                    backgroundColor: [
+                        '#EF4444',
+                        '#F59E0B',
+                        '#10B981',
+                        '#3B82F6',
+                        '#8B5CF6'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#CBD5E1' }
+                    }
+                }
+            }
+        });
+    }
+
+    // Response Time Analysis Chart
+    const responseTimeCtx = document.getElementById('responseTimeChart');
+    if (responseTimeCtx) {
+        charts.responseTimeChart = new Chart(responseTimeCtx, {
+            type: 'bar',
+            data: {
+                labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                datasets: [{
+                    label: 'Avg Response Time (min)',
+                    data: [2.3, 1.8, 2.5, 1.9, 2.1, 2.8, 2.4],
+                    backgroundColor: '#10B981'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: { color: '#CBD5E1' }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(203, 213, 225, 0.1)' },
+                        ticks: { color: '#CBD5E1' }
+                    },
+                    x: {
+                        grid: { color: 'rgba(203, 213, 225, 0.1)' },
+                        ticks: { color: '#CBD5E1' }
+                    }
+                }
+            }
+        });
+    }
+
+    // Camera Performance Chart
+    const cameraPerformanceCtx = document.getElementById('cameraPerformanceChart');
+    if (cameraPerformanceCtx) {
+        charts.cameraPerformanceChart = new Chart(cameraPerformanceCtx, {
+            type: 'radar',
+            data: {
+                labels: ['Detection Rate', 'Uptime', 'Image Quality', 'Network Stability', 'Alert Accuracy'],
+                datasets: [{
+                    label: 'Camera Performance',
+                    data: [85, 92, 78, 88, 82],
+                    backgroundColor: 'rgba(56, 189, 248, 0.2)',
+                    borderColor: '#38BDF8',
+                    pointBackgroundColor: '#38BDF8'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    r: {
+                        angleLines: { color: 'rgba(203, 213, 225, 0.1)' },
+                        grid: { color: 'rgba(203, 213, 225, 0.1)' },
+                        pointLabels: { color: '#CBD5E1' },
+                        ticks: { 
+                            color: '#CBD5E1',
+                            backdropColor: 'transparent'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#CBD5E1' }
+                    }
+                }
+            }
+        });
+    }
+}
+
+function exportReport(type) {
+    console.log('Exporting report:', type);
+    // Add export logic here
+    alert(`Exporting ${type} report...`);
+}
+
+function generateCustomReport() {
+    console.log('Generating custom report');
+    // Add custom report logic here
+    alert('Opening custom report configuration...');
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h2 class="text-2xl font-bold flex items-center gap-2">
+        <i class="bi bi-graph-up text-sky"></i> Analytics & Reports
+    </h2>
+    <p class="text-gray-400 mt-2">Comprehensive crash detection statistics and performance metrics</p>
+</div>
+
+<!-- Quick Stats -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-[#1E293B] p-4 rounded-lg border border-gray-600 text-center">
+        <i class="bi bi-car-front text-sky text-2xl mb-2"></i>
+        <h3 class="text-lg font-bold text-sky">156</h3>
+        <p class="text-gray-400 text-sm">Total Incidents</p>
+    </div>
+    <div class="bg-[#1E293B] p-4 rounded-lg border border-gray-600 text-center">
+        <i class="bi bi-clock text-greenlight text-2xl mb-2"></i>
+        <h3 class="text-lg font-bold text-greenlight">2.1min</h3>
+        <p class="text-gray-400 text-sm">Avg Response Time</p>
+    </div>
+    <div class="bg-[#1E293B] p-4 rounded-lg border border-gray-600 text-center">
+        <i class="bi bi-check-circle text-gold text-2xl mb-2"></i>
+        <h3 class="text-lg font-bold text-gold">94%</h3>
+        <p class="text-gray-400 text-sm">Detection Accuracy</p>
+    </div>
+    <div class="bg-[#1E293B] p-4 rounded-lg border border-gray-600 text-center">
+        <i class="bi bi-exclamation-triangle text-alert text-2xl mb-2"></i>
+        <h3 class="text-lg font-bold text-alert">12</h3>
+        <p class="text-gray-400 text-sm">Pending Alerts</p>
+    </div>
+</div>
+
+<!-- Crash Statistics Overview -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <!-- Monthly Crash Trends -->
+    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+        <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+            <i class="bi bi-graph-up-arrow text-sky"></i> Monthly Crash Trends
+        </h3>
+        <div class="h-64">
+            <canvas id="monthlyCrashChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Crash Type Distribution -->
+    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+        <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+            <i class="bi bi-pie-chart text-alert"></i> Crash Type Distribution
+        </h3>
+        <div class="h-64">
+            <canvas id="crashTypeChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Detailed Statistics -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 mb-8">
+    <!-- Response Time Analysis -->
+    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+        <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+            <i class="bi bi-speedometer2 text-greenlight"></i> Response Time Analysis
+        </h3>
+        <div class="h-64">
+            <canvas id="responseTimeChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Camera Performance -->
+    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+        <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+            <i class="bi bi-camera-video text-gold"></i> Camera Performance
+        </h3>
+        <div class="h-64">
+            <canvas id="cameraPerformanceChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Report Generation -->
+<div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+    <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+        <i class="bi bi-file-earmark-arrow-down text-sky"></i> Generate Reports
+    </h3>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-darkbg p-4 rounded-lg border border-gray-600">
+            <h4 class="font-semibold mb-2 text-sky">Daily Report</h4>
+            <p class="text-sm text-gray-400 mb-3">Generate today's crash detection summary</p>
+            <button onclick="exportReport('daily')" class="w-full bg-sky hover:bg-sky/80 text-white py-2 rounded transition flex items-center justify-center gap-2">
+                <i class="bi bi-download"></i> Download PDF
+            </button>
+        </div>
+        <div class="bg-darkbg p-4 rounded-lg border border-gray-600">
+            <h4 class="font-semibold mb-2 text-alert">Weekly Report</h4>
+            <p class="text-sm text-gray-400 mb-3">Weekly performance and incident analysis</p>
+            <button onclick="exportReport('weekly')" class="w-full bg-alert hover:bg-alert/80 text-white py-2 rounded transition flex items-center justify-center gap-2">
+                <i class="bi bi-download"></i> Download PDF
+            </button>
+        </div>
+        <div class="bg-darkbg p-4 rounded-lg border border-gray-600">
+            <h4 class="font-semibold mb-2 text-greenlight">Custom Report</h4>
+            <p class="text-sm text-gray-400 mb-3">Custom date range and metrics</p>
+            <button onclick="generateCustomReport()" class="w-full bg-greenlight hover:bg-greenlight/80 text-white py-2 rounded transition flex items-center justify-center gap-2">
+                <i class="bi bi-gear"></i> Configure
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,222 @@
+{% extends 'dashboard/base.html' %}
+
+{% block title %}CCTV Monitoring | DisgrasEye{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // CCTV specific JavaScript can go here
+    console.log('CCTV Monitoring loaded');
+});
+
+function toggleCamera(cameraId) {
+    console.log('Toggling camera:', cameraId);
+    // Add camera control logic here
+}
+
+function fullscreenCamera(cameraId) {
+    console.log('Fullscreen camera:', cameraId);
+    // Add fullscreen logic here
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h2 class="text-2xl font-bold flex items-center gap-2">
+        <i class="bi bi-camera-video text-sky"></i> Live CCTV Monitoring
+    </h2>
+    <p class="text-gray-400 mt-2">Real-time surveillance feeds from all connected cameras</p>
+</div>
+
+<!-- Camera Grid -->
+<div class="camera-grid mb-8">
+    <!-- Camera 1 -->
+    <div class="camera-feed">
+        <div class="camera-status bg-greenlight/80">LIVE</div>
+        <div class="aspect-video bg-gradient-to-br from-sky/20 to-alert/20 flex items-center justify-center">
+            <div class="text-center text-white">
+                <i class="bi bi-camera-video text-4xl mb-2 opacity-50"></i>
+                <p class="font-semibold">Payung 1-3</p>
+                <p class="text-sm opacity-70">Status: Active • 1080p</p>
+            </div>
+        </div>
+        <div class="p-4 bg-[#1E293B]">
+            <div class="flex justify-between items-center">
+                <span class="text-sm text-gray-400">Live Feed</span>
+                <button onclick="fullscreenCamera('cam1')" class="bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded text-sm transition">
+                    <i class="bi bi-arrows-fullscreen mr-1"></i> Fullscreen
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Camera 2 -->
+    <div class="camera-feed">
+        <div class="camera-status bg-greenlight/80">LIVE</div>
+        <div class="aspect-video bg-gradient-to-br from-gold/20 to-greenlight/20 flex items-center justify-center">
+            <div class="text-center text-white">
+                <i class="bi bi-camera-video text-4xl mb-2 opacity-50"></i>
+                <p class="font-semibold">DPWH 1-2</p>
+                <p class="text-sm opacity-70">Status: Active • 1080p</p>
+            </div>
+        </div>
+        <div class="p-4 bg-[#1E293B]">
+            <div class="flex justify-between items-center">
+                <span class="text-sm text-gray-400">Live Feed</span>
+                <button onclick="fullscreenCamera('cam2')" class="bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded text-sm transition">
+                    <i class="bi bi-arrows-fullscreen mr-1"></i> Fullscreen
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Camera 3 -->
+    <div class="camera-feed">
+        <div class="camera-status bg-alert/80">ALERT</div>
+        <div class="aspect-video bg-gradient-to-br from-alert/20 to-red-500/20 flex items-center justify-center relative">
+            <div class="absolute inset-0 bg-alert/20 animate-pulse"></div>
+            <div class="text-center text-white relative z-10">
+                <i class="bi bi-exclamation-triangle text-4xl mb-2"></i>
+                <p class="font-semibold">CAM-003 - Market Road</p>
+                <p class="text-sm">🚨 Crash Detected - Monitoring</p>
+            </div>
+        </div>
+        <div class="p-4 bg-[#1E293B]">
+            <div class="flex justify-between items-center">
+                <span class="text-sm text-alert">Alert Active</span>
+                <button onclick="toggleCamera('cam3')" class="bg-alert hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition">
+                    <i class="bi bi-play-circle mr-1"></i> Review
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Camera 4 -->
+    <div class="camera-feed">
+        <div class="camera-status bg-greenlight/80">LIVE</div>
+        <div class="aspect-video bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center">
+            <div class="text-center text-white">
+                <i class="bi bi-camera-video text-4xl mb-2 opacity-50"></i>
+                <p class="font-semibold">Galvez 1-2</p>
+                <p class="text-sm opacity-70">Status: Active • 720p</p>
+            </div>
+        </div>
+        <div class="p-4 bg-[#1E293B]">
+            <div class="flex justify-between items-center">
+                <span class="text-sm text-gray-400">Live Feed</span>
+                <button onclick="fullscreenCamera('cam4')" class="bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded text-sm transition">
+                    <i class="bi bi-arrows-fullscreen mr-1"></i> Fullscreen
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Camera Statistics -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+        <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+            <i class="bi bi-wifi text-sky"></i> Camera Status
+        </h3>
+        <div class="space-y-3">
+            <div class="flex justify-between">
+                <span class="text-gray-400">Online Cameras</span>
+                <span class="text-greenlight font-semibold">8/8</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-400">Recording</span>
+                <span class="text-sky font-semibold">24/7</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-400">Storage</span>
+                <span class="text-gold font-semibold">78%</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+        <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+            <i class="bi bi-shield-check text-greenlight"></i> Security Status
+        </h3>
+        <div class="space-y-3">
+            <div class="flex justify-between">
+                <span class="text-gray-400">AI Monitoring</span>
+                <span class="text-greenlight font-semibold">Active</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-400">Alerts Today</span>
+                <span class="text-alert font-semibold">3</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-400">Response Time</span>
+                <span class="text-sky font-semibold">2.3min</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+        <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+            <i class="bi bi-graph-up text-gold"></i> System Health
+        </h3>
+        <div class="space-y-3">
+            <div class="flex justify-between">
+                <span class="text-gray-400">Uptime</span>
+                <span class="text-greenlight font-semibold">99.8%</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-400">CPU Load</span>
+                <span class="text-gold font-semibold">42%</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-400">Network</span>
+                <span class="text-sky font-semibold">Stable</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Camera Controls -->
+<div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600 mt-6">
+    <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+        <i class="bi bi-sliders text-sky"></i> Camera Controls
+    </h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="text-center p-4 bg-darkbg rounded-lg border border-gray-600">
+            <i class="bi bi-record-circle text-alert text-2xl mb-2"></i>
+            <h4 class="font-semibold">Start Recording</h4>
+            <p class="text-sm text-gray-400 mt-1">Begin continuous recording</p>
+            <button class="w-full bg-alert hover:bg-alert/80 text-white py-2 rounded mt-2 transition">
+                Activate
+            </button>
+        </div>
+        
+        <div class="text-center p-4 bg-darkbg rounded-lg border border-gray-600">
+            <i class="bi bi-camera text-sky text-2xl mb-2"></i>
+            <h4 class="font-semibold">Snapshot</h4>
+            <p class="text-sm text-gray-400 mt-1">Capture current frame</p>
+            <button class="w-full bg-sky hover:bg-sky/80 text-white py-2 rounded mt-2 transition">
+                Capture
+            </button>
+        </div>
+        
+        <div class="text-center p-4 bg-darkbg rounded-lg border border-gray-600">
+            <i class="bi bi-arrow-clockwise text-greenlight text-2xl mb-2"></i>
+            <h4 class="font-semibold">Refresh All</h4>
+            <p class="text-sm text-gray-400 mt-1">Reload camera feeds</p>
+            <button class="w-full bg-greenlight hover:bg-greenlight/80 text-white py-2 rounded mt-2 transition">
+                Refresh
+            </button>
+        </div>
+        
+        <div class="text-center p-4 bg-darkbg rounded-lg border border-gray-600">
+            <i class="bi bi-download text-gold text-2xl mb-2"></i>
+            <h4 class="font-semibold">Export Logs</h4>
+            <p class="text-sm text-gray-400 mt-1">Download activity logs</p>
+            <button class="w-full bg-gold hover:bg-gold/80 text-gray-900 py-2 rounded mt-2 transition">
+                Download
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
