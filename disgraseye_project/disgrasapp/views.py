@@ -1,33 +1,35 @@
+import os
+import cv2
+import time
+import threading
+import json
+from django.shortcuts import render, get_object_or_404
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.core.files.storage import default_storage
-from django.conf import settings
-import os
-from datetime import datetime
-from .models import Detection
-from django.contrib.auth import authenticate, login, logout
+from django.conf import settings    
+from django.http import HttpResponse, FileResponse, StreamingHttpResponse
+from ultralytics import YOLO
 from django.contrib.auth.decorators import login_required
+import numpy as np
+from .forms import VideoUploadForm
+from .models import VideoUpload
 from django.contrib import messages
+from django.contrib.auth import authenticate, login, logout
+import threading
+from collections import defaultdict
 
+# Load your trained model
+model_path = os.path.join(settings.BASE_DIR, 'best.pt')
+model = YOLO(model_path)
 
-# Authentication Views
-def landing_page(request):
-    return render(request, 'dashboard/landing_page.html')
+# Global variables for RTSP monitoring
+is_monitoring = False
+latest_detection_result = None
+current_rtsp_url = ""
 
-def login_view(request):
-    if request.method == 'POST':
-        username = request.POST.get('username')
-        password = request.POST.get('password')
-        user = authenticate(request, username=username, password=password)
-        
-        if user is not None:
-            login(request, user)
-            return redirect('dashboard')
-        else:
-            messages.error(request, 'Invalid username or password')
-    
-    return render(request, 'login/login.html')
+# =============================================================================
+# AUTHENTICATION & BASIC VIEWS
+# =============================================================================
 
 @login_required
 def dashboard(request):
@@ -49,597 +51,621 @@ def logout_view(request):
     logout(request)
     return redirect('login')
 
-@login_required
-def index(request):
-    return render(request, 'index.html')
+def landing_page(request):
+    return render(request, 'dashboard/landing_page.html')
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# YOLOv8 imports
-try:
-    from ultralytics import YOLO
-    import cv2
-    import numpy as np
-    from PIL import Image, ImageDraw
-    import math
-    YOLO_AVAILABLE = True
-except ImportError:
-    YOLO_AVAILABLE = False
-
-# Initialize YOLOv8 model
-if YOLO_AVAILABLE:
-    model = YOLO('yolov8n.pt')
-else:
-    model = None
-
-
-# Crash Detection Views
-@csrf_exempt
-@login_required
-def detect_crash(request):
-    """
-    AJAX endpoint for crash detection with improved crash detection logic
-    """
-    if request.method != 'POST':
-        return JsonResponse({'error': 'POST method required'}, status=405)
-    
-    if 'file' not in request.FILES:
-        return JsonResponse({'error': 'No file uploaded'}, status=400)
-    
-    uploaded_file = request.FILES['file']
-    
-    # Save uploaded file
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-    filename = f"{timestamp}_{uploaded_file.name}"
-    filepath = default_storage.save(f'uploads/{filename}', uploaded_file)
-    full_path = os.path.join(settings.MEDIA_ROOT, filepath)
-    
-    # Run detection
-    try:
-        if not YOLO_AVAILABLE:
-            result = simulate_detection(full_path)
+def login_view(request):
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        user = authenticate(request, username=username, password=password)
+        
+        if user is not None:
+            login(request, user)
+            return redirect('dashboard')
         else:
-            # Check if file is video or image
-            if uploaded_file.content_type.startswith('video'):
-                result = process_video_detection(full_path, filepath)
-            else:
-                result = process_image_detection(full_path, filepath)
+            messages.error(request, 'Invalid username or password')
+    
+    return render(request, 'login/login.html')
+
+# =============================================================================
+# DYNAMIC RTSP MONITORING FUNCTIONS
+# =============================================================================
+
+def generate_frames():
+    """Generate frames directly from RTSP stream"""
+    global is_monitoring, latest_detection_result, current_rtsp_url
+    
+    if not current_rtsp_url:
+        print("❌ No RTSP URL configured")
+        return
+    
+    cap = cv2.VideoCapture(current_rtsp_url)
+    
+    # Low latency settings
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    cap.set(cv2.CAP_PROP_FPS, 15)
+    
+    print(f"🎥 Starting RTSP stream capture: {current_rtsp_url}")
+    frame_count = 0
+    
+    while is_monitoring:
+        try:
+            ret, frame = cap.read()
+            if not ret:
+                print("❌ Failed to read frame from RTSP")
+                time.sleep(1)
+                continue
+            
+            # Resize for faster processing
+            frame = cv2.resize(frame, (640, 480))
+            
+            # Run YOLO detection
+            start_time = time.time()
+            results = model(frame, imgsz=320, conf=0.5, verbose=False)
+            
+            # Check for crashes
+            crash_detected = False
+            crash_classes = []
+            
+            for result in results:
+                if result.boxes is not None:
+                    for box in result.boxes:
+                        class_id = int(box.cls[0])
+                        class_name = model.names[class_id]
+                        confidence = float(box.conf[0])
+                        
+                        if any(keyword in class_name.lower() for keyword in ['crash', 'accident']):
+                            crash_detected = True
+                            crash_classes.append(class_name)
+                            print(f"🚨 Crash detected: {class_name} ({confidence:.2f})")
+            
+            # Annotate frame
+            annotated_frame = results[0].plot()
+            
+            # Add status text
+            status_text = "🚨 CRASH DETECTED!" if crash_detected else "✅ Monitoring"
+            color = (0, 0, 255) if crash_detected else (0, 255, 0)
+            cv2.putText(annotated_frame, status_text, (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            
+            # Add latency info
+            latency = int((time.time() - start_time) * 1000)
+            cv2.putText(annotated_frame, f"Latency: {latency}ms", (10, 60),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            # Add timestamp
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            cv2.putText(annotated_frame, timestamp, (10, annotated_frame.shape[0] - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            # Update detection result
+            latest_detection_result = {
+                'crash_detected': crash_detected,
+                'crash_classes': crash_classes,
+                'timestamp': time.time(),
+                'latency_ms': latency,
+                'frame_count': frame_count
+            }
+            
+            # Encode frame
+            ret, buffer = cv2.imencode('.jpg', annotated_frame, [
+                cv2.IMWRITE_JPEG_QUALITY, 80
+            ])
+            
+            if ret:
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            frame_count += 1
+            if frame_count % 30 == 0:
+                print(f"📊 Frames processed: {frame_count}, Latency: {latency}ms")
+            
+        except Exception as e:
+            print(f"❌ Frame processing error: {e}")
+            time.sleep(0.1)
+            continue
+    
+    cap.release()
+    print("🛑 RTSP stream capture stopped")
+
+def rtsp_stream(request):
+    """Stream RTSP feed with live crash detection"""
+    global is_monitoring, current_rtsp_url
+    
+    try:
+        if not current_rtsp_url:
+            return HttpResponse("No RTSP URL configured", status=400)
+            
+        print(f"🎬 Stream endpoint called for: {current_rtsp_url}")
+        is_monitoring = True
         
-        # Save detection to database
-        detection = Detection.objects.create(
-            timestamp=datetime.now(),
-            confidence=result['confidence'],
-            image_path=result['annotated_path'],
-            status=result['status'],
-            crash_detected=result['crash_detected']
+        response = StreamingHttpResponse(
+            generate_frames(),
+            content_type='multipart/x-mixed-replace; boundary=frame'
         )
-        
-        return JsonResponse({
-    'success': True,
-    'crash_detected': result['crash_detected'],
-    'status': result['status'],
-    'confidence': result['confidence'],
-    'timestamp': detection.timestamp.isoformat(),
-    'image_path': detection.image_path,
-    'detection_id': detection.id,
-    'vehicle_count': result.get('vehicle_count', 0),
-    'crash_reason': result.get('crash_reason', ''),
-    'is_video': result.get('is_video', False),  # ADD THIS LINE
-    'total_frames': result.get('total_frames', 0)  # ADD THIS LINE
-})
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response['Pragma'] = 'no-cache'
+        response['Expires'] = '0'
+        return response
         
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        print(f"❌ Stream error: {e}")
+        is_monitoring = False
+        return HttpResponse("Stream error", status=500)
 
-def process_image_detection(image_path, original_filepath):
-    """
-    Process single image for crash detection with bounding boxes
-    """
-    # Run YOLOv8 inference
-    results = model(image_path, conf=0.3)
+@login_required
+def start_rtsp_monitoring(request):
+    """Start RTSP monitoring with dynamic URL"""
+    global is_monitoring, current_rtsp_url
     
-    crash_detected = False
-    max_confidence = 0.0
-    vehicle_count = 0
-    crash_reason = ""
-    
-    # Get the first result (single image)
-    result = results[0]
-    boxes = result.boxes
-    
-    # Vehicle classes in COCO dataset: car(2), motorcycle(3), bus(5), truck(7)
-    vehicle_classes = [2, 3, 5, 7]
-    
-    vehicles = []
-    
-    for box in boxes:
-        cls = int(box.cls[0])
-        conf = float(box.conf[0])
-        
-        if cls in vehicle_classes:
-            vehicle_count += 1
-            vehicles.append({
-                'class': cls,
-                'confidence': conf,
-                'bbox': box.xyxy[0].cpu().numpy(),
-                'center': calculate_center(box.xyxy[0].cpu().numpy())
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            rtsp_url = data.get('rtsp_url', '').strip()
+            
+            # Validate RTSP URL
+            if not rtsp_url:
+                return JsonResponse({'error': 'RTSP URL is required'}, status=400)
+            
+            if not rtsp_url.startswith(('rtsp://', 'http://', 'https://')):
+                return JsonResponse({'error': 'Invalid URL format. Must start with rtsp://, http://, or https://'}, status=400)
+            
+            # Set the current RTSP URL
+            current_rtsp_url = rtsp_url
+            is_monitoring = True
+            
+            # Store in session for persistence
+            request.session['current_rtsp_url'] = rtsp_url
+            
+            print(f"▶ RTSP monitoring started: {rtsp_url}")
+            return JsonResponse({
+                'status': 'success', 
+                'message': 'RTSP monitoring started',
+                'rtsp_url': rtsp_url
             })
-            max_confidence = max(max_confidence, conf * 100)
+            
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON data'}, status=400)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
     
-    # Check for crash conditions
-    if vehicle_count >= 2:
-        # Check for vehicle proximity (potential collision)
-        crash_detected, crash_reason = check_crash_conditions(vehicles)
-    
-    # Generate annotated image with bounding boxes
-    annotated_path = create_annotated_image(image_path, vehicles, crash_detected)
-    
-    return {
-        'crash_detected': crash_detected,
-        'status': 'Crash Detected' if crash_detected else 'No Crash',
-        'confidence': round(max_confidence, 2),
-        'vehicle_count': vehicle_count,
-        'crash_reason': crash_reason,
-        'annotated_path': f"/media/{annotated_path}"
-    }
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
 
-# Replace your process_video_detection function with this
+@login_required
+def stop_rtsp_monitoring(request):
+    """Stop RTSP monitoring"""
+    global is_monitoring
+    
+    is_monitoring = False
+    print("⏹ RTSP monitoring stopped")
+    return HttpResponse("RTSP monitoring stopped")
 
-def process_video_detection(video_path, original_filepath):
-    """
-    Process entire video and create annotated video with bounding boxes
-    Returns annotated VIDEO with web-compatible format
-    """
-    print(f"🎥 Processing video: {video_path}")
+@login_required
+def get_detection_status(request):
+    """Get current detection status"""
+    global latest_detection_result
     
-    cap = cv2.VideoCapture(video_path)
+    if latest_detection_result:
+        latency = latest_detection_result.get('latency_ms', 0)
+        crash_status = "True" if latest_detection_result['crash_detected'] else "False"
+        frame_count = latest_detection_result.get('frame_count', 0)
+        return HttpResponse(f"Crash:{crash_status}|Latency:{latency}ms|Frames:{frame_count}")
     
-    if not cap.isOpened():
-        raise Exception("Could not open video file")
+    return HttpResponse("Crash:False|Latency:0ms|Frames:0")
+
+@login_required
+def get_rtsp_status(request):
+    """Get current RTSP URL status"""
+    global current_rtsp_url
     
-    # Get video properties
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # Try to get from session if not set globally
+    if not current_rtsp_url:
+        current_rtsp_url = request.session.get('current_rtsp_url', '')
     
-    print(f"📊 Video: {total_frames} frames, {fps} FPS, {width}x{height}")
+    return JsonResponse({'rtsp_url': current_rtsp_url})
+
+@login_required
+def live_monitoring(request):
+    """Live monitoring dashboard with dynamic RTSP URL input"""
+    global current_rtsp_url
     
-    # Create output video filename - use .mp4 extension
-    original_name = os.path.basename(video_path)
-    name_without_ext = os.path.splitext(original_name)[0]
-    output_filename = f"annotated_{name_without_ext}.mp4"
-    output_path = os.path.join(settings.MEDIA_ROOT, 'uploads', output_filename)
+    # Get current RTSP URL from session if available
+    if not current_rtsp_url:
+        current_rtsp_url = request.session.get('current_rtsp_url', '')
     
-    # Try different codecs for better browser compatibility
-    # Try H.264 codec first (most compatible)
-    fourcc = cv2.VideoWriter_fourcc(*'avc1')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    return render(request, 'dashboard/live_monitoring.html', {
+        'RTSP_URL': current_rtsp_url
+    })
+
+# =============================================================================
+# EXISTING VIDEO PROCESSING FUNCTIONS (UNCHANGED)
+# =============================================================================
+
+def process_video(video_upload):
+    """Process uploaded video with YOLOv8 model for crash detection"""
+    CRASH_CONFIDENCE_THRESHOLD = 0.60
     
-    # If H.264 fails, try MP4V
-    if not out.isOpened():
-        print("🔄 Trying MP4V codec...")
+    try:
+        input_video_path = video_upload.video_file.path
+        
+        # Create output path with proper extension
+        original_name = os.path.basename(input_video_path)
+        name_without_ext = os.path.splitext(original_name)[0]
+        output_filename = f'processed_{name_without_ext}.mp4'  # Force .mp4 extension
+        output_path = os.path.join(settings.MEDIA_ROOT, 'processed_videos', output_filename)
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # Open the video
+        cap = cv2.VideoCapture(input_video_path)
+        if not cap.isOpened():
+            print(f"Error: Could not open video file {input_video_path}")
+            return None
+        
+        # Get video properties
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        if fps == 0:  # Handle invalid FPS
+            fps = 30
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        print(f"📹 Processing video: {width}x{height} at {fps} FPS")
+        
+        # Use MP4V codec for maximum compatibility (works on most systems)
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    
-    # If still fails, use XVID (should work on most systems)
-    if not out.isOpened():
-        print("🔄 Trying XVID codec...")
-        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    
-    if not out.isOpened():
-        raise Exception("Could not create video writer with any codec")
-    
-    crash_detected = False
-    crash_reasons = []
-    all_vehicles = []
-    frame_count = 0
-    max_confidence = 0.0
-    
-    print(f"⚙️ Processing frames...")
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
         
-        # Run YOLOv8 on this frame
-        results = model(frame, conf=0.45, verbose=False)
-        result = results[0]
+        if not out.isOpened():
+            print(f"❌ Failed to create output video writer")
+            cap.release()
+            return None
         
-        # Extract vehicles from detections
-        vehicle_classes = [2, 3, 5, 7]
-        class_names = {2: "Car", 3: "Motorcycle", 5: "Bus", 7: "Truck"}
+        crash_detected_any_frame = False
+        frame_count = 0
+        crash_frames = 0
+        total_frames = 0
         
-        frame_vehicles = []
-        
-        for box in result.boxes:
-            cls = int(box.cls[0])
-            conf = float(box.conf[0])
+        # Process each frame
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
             
-            if cls in vehicle_classes:
-                bbox = box.xyxy[0].cpu().numpy()
-                frame_vehicles.append({
-                    'class': cls,
-                    'class_name': class_names[cls],
-                    'confidence': conf,
-                    'bbox': bbox,
-                    'center': calculate_center(bbox)
-                })
-                max_confidence = max(max_confidence, conf * 100)
-        
-        # Check for crash in this frame
-        frame_crash = False
-        if len(frame_vehicles) >= 2:
-            frame_crash, reason = check_crash_conditions(frame_vehicles)
-            if frame_crash and not crash_detected:
-                crash_detected = True
-                crash_reasons.append(f"Frame {frame_count}: {reason}")
-                print(f"  🚨 Crash detected at frame {frame_count}")
-        
-        # Draw bounding boxes on frame
-        annotated_frame = draw_bounding_boxes(frame, frame_vehicles, frame_crash)
-        
-        # Write annotated frame to output video
-        out.write(annotated_frame)
-        
-        all_vehicles.extend(frame_vehicles)
-        frame_count += 1
-        
-        # Progress indicator
-        if frame_count % 30 == 0:
-            print(f"  ⏳ Processed {frame_count}/{total_frames} frames...")
-    
-    cap.release()
-    out.release()
-    
-    print(f"✅ Video processing complete: {frame_count} frames")
-    print(f"📹 Output saved to: {output_path}")
-    
-    # Calculate overall statistics
-    avg_vehicles = len(all_vehicles) / frame_count if frame_count > 0 else 0
-    crash_reason = crash_reasons[0] if crash_reasons else ""
-    
-    # Return the correct media URL path
-    return {
-        'crash_detected': crash_detected,
-        'status': 'Crash Detected' if crash_detected else 'No Crash',
-        'confidence': round(max_confidence, 2),
-        'vehicle_count': int(avg_vehicles),
-        'crash_reason': crash_reason,
-        'annotated_path': f"/media/uploads/{output_filename}",
-        'is_video': True,
-        'total_frames': frame_count
-    }
-def draw_bounding_boxes(frame, vehicles, crash_detected):
-    """
-    Draw bounding boxes on video frame
-    GREEN for normal, RED for crash
-    """
-    # Colors (BGR)
-    vehicle_colors = {
-        2: (0, 255, 0),      # Car - Green
-        3: (0, 200, 0),      # Motorcycle - Dark Green
-        5: (0, 255, 100),    # Bus - Light Green
-        7: (0, 180, 0)       # Truck - Medium Green
-    }
-    
-    crash_color = (0, 0, 255)  # Red
-    
-    for vehicle in vehicles:
-        # Choose color
-        if crash_detected:
-            color = crash_color
-        else:
-            color = vehicle_colors.get(vehicle['class'], (0, 255, 0))
-        
-        # Get bbox
-        bbox = vehicle['bbox'].astype(int)
-        x1, y1, x2, y2 = bbox
-        
-        # Draw box
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
-        
-        # Label
-        label = f"{vehicle['class_name']} {vehicle['confidence']:.2f}"
-        
-        # Label background
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.6
-        thickness = 2
-        (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
-        
-        cv2.rectangle(frame, (x1, y1 - text_height - 10), 
-                     (x1 + text_width + 10, y1), color, -1)
-        
-        cv2.putText(frame, label, (x1 + 5, y1 - 5), 
-                   font, font_scale, (255, 255, 255), thickness)
-    
-    # Status banner
-    status_text = "🚨 CRASH DETECTED!" if crash_detected else f"✓ Monitoring - {len(vehicles)} vehicles"
-    status_color = crash_color if crash_detected else (0, 255, 0)
-    
-    # Banner background
-    cv2.rectangle(frame, (10, 10), (500, 60), status_color, -1)
-    cv2.putText(frame, status_text, (20, 45), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-    
-    return frame
-
-def calculate_center(bbox):
-    """Calculate center point of bounding box"""
-    x1, y1, x2, y2 = bbox
-    return ((x1 + x2) / 2, (y1 + y2) / 2)
-
-def check_crash_conditions(vehicles):
-    """
-    Improved crash detection logic
-    Only detects REAL crashes, not normal traffic
-    """
-    if len(vehicles) < 2:
-        return False, ""
-    
-    # Calculate average distance between all vehicles
-    distances = []
-    for i in range(len(vehicles)):
-        for j in range(i + 1, len(vehicles)):
-            dist = calculate_distance(vehicles[i]['center'], vehicles[j]['center'])
-            distances.append(dist)
-    
-    if not distances:
-        return False, ""
-    
-    avg_distance = sum(distances) / len(distances)
-    min_distance = min(distances)
-    
-    # STRICT crash criteria:
-    # 1. At least 2 vehicles EXTREMELY close (overlapping)
-    # 2. Much closer than average traffic distance
-    
-    # Very strict threshold for actual crashes
-    CRASH_THRESHOLD = 50  # pixels - vehicles must be overlapping
-    
-    if min_distance < CRASH_THRESHOLD:
-        # Check if this is actually unusual (not just normal traffic)
-        if min_distance < avg_distance * 0.3:  # 30% of average distance
-            return True, f"Collision detected: vehicles {min_distance:.0f}px apart (critical proximity)"
-    
-    # Additional check: 3+ vehicles in very tight cluster
-    tight_cluster = sum(1 for d in distances if d < 80)
-    if tight_cluster >= 3 and min_distance < 60:
-        return True, f"Multi-vehicle collision detected ({tight_cluster} vehicles in tight cluster)"
-    
-    return False, ""
-
-def calculate_distance(point1, point2):
-    """Calculate Euclidean distance between two points"""
-    return math.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
-
-def create_annotated_image(image_path, vehicles, crash_detected):
-    """
-    Create annotated image with colored bounding boxes
-    """
-    # Load image
-    image = Image.open(image_path)
-    draw = ImageDraw.Draw(image)
-    
-    # Define colors
-    crash_color = (255, 0, 0)  # Red for crash
-    normal_color = (0, 255, 0)  # Green for normal
-    text_color = (255, 255, 255)  # White text
-    
-    # Class names
-    class_names = {
-        2: "Car",
-        3: "Motorcycle", 
-        5: "Bus",
-        7: "Truck"
-    }
-    
-    for vehicle in vehicles:
-        # Choose color based on crash detection
-        color = crash_color if crash_detected else normal_color
-        
-        # Draw bounding box
-        bbox = vehicle['bbox']
-        draw.rectangle([bbox[0], bbox[1], bbox[2], bbox[3]], 
-                      outline=color, width=3)
-        
-        # Draw label
-        class_name = class_names.get(vehicle['class'], "Vehicle")
-        confidence = vehicle['confidence']
-        label = f"{class_name} {confidence:.2f}"
-        
-        # Simple text background
-        text_bbox = draw.textbbox((0, 0), label)
-        text_width = text_bbox[2] - text_bbox[0]
-        text_height = text_bbox[3] - text_bbox[1]
-        
-        draw.rectangle([bbox[0], bbox[1] - text_height - 5, 
-                       bbox[0] + text_width + 10, bbox[1]], 
-                      fill=color)
-        draw.text((bbox[0] + 5, bbox[1] - text_height - 2), 
-                 label, fill=text_color)
-    
-    # Add overall status text
-    status_text = "🚨 CRASH DETECTED!" if crash_detected else "✅ No Crash - Normal"
-    status_color = crash_color if crash_detected else normal_color
-    
-    # Draw status box
-    status_bbox = draw.textbbox((0, 0), status_text)
-    status_width = status_bbox[2] - status_bbox[0]
-    draw.rectangle([10, 10, status_width + 30, 50], fill=status_color)
-    draw.text((20, 15), status_text, fill=text_color)
-    
-    # Save annotated image
-    annotated_filename = f"annotated_{os.path.basename(image_path)}"
-    annotated_path = os.path.join(settings.MEDIA_ROOT, 'uploads', annotated_filename)
-    image.save(annotated_path)
-    
-    return f"uploads/{annotated_filename}"
-
-def create_annotated_image_from_frame(video_path, frame_number, vehicles, crash_detected):
-    """
-    Extract frame from video and create annotated image
-    """
-    cap = cv2.VideoCapture(video_path)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-    ret, frame = cap.read()
-    
-    if ret:
-        # Convert BGR to RGB
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        image = Image.fromarray(frame_rgb)
-        draw = ImageDraw.Draw(image)
-        
-        # Same annotation logic as create_annotated_image
-        crash_color = (255, 0, 0)
-        normal_color = (0, 255, 0)
-        text_color = (255, 255, 255)
-        
-        class_names = {2: "Car", 3: "Motorcycle", 5: "Bus", 7: "Truck"}
-        
-        for vehicle in vehicles:
-            color = crash_color if crash_detected else normal_color
-            bbox = vehicle['bbox']
-            draw.rectangle([bbox[0], bbox[1], bbox[2], bbox[3]], 
-                          outline=color, width=3)
+            results = model(frame, conf=CRASH_CONFIDENCE_THRESHOLD)
             
-            class_name = class_names.get(vehicle['class'], "Vehicle")
-            confidence = vehicle['confidence']
-            label = f"{class_name} {confidence:.2f}"
+            frame_has_crash = False
             
-            text_bbox = draw.textbbox((0, 0), label)
-            text_height = text_bbox[3] - text_bbox[1]
+            # Check if crash is detected
+            for result in results:
+                if result.boxes is not None and len(result.boxes) > 0:
+                    for box in result.boxes:
+                        class_id = int(box.cls[0])
+                        class_name = model.names[class_id]
+                        confidence = float(box.conf[0])
+                        
+                        crash_keywords = ['crash', 'accident']
+                        
+                        if any(keyword in class_name.lower() for keyword in crash_keywords):
+                            frame_has_crash = True
+                            print(f"Crash detected in frame {frame_count}: {class_name} with confidence: {confidence:.2f}")
             
-            draw.rectangle([bbox[0], bbox[1] - text_height - 5, 
-                           bbox[0] + (text_bbox[2] - text_bbox[0]) + 10, bbox[1]], 
-                          fill=color)
-            draw.text((bbox[0] + 5, bbox[1] - text_height - 2), 
-                     label, fill=text_color)
+            if frame_has_crash:
+                crash_frames += 1
+            
+            total_frames += 1
+            
+            # Visualize results
+            annotated_frame = results[0].plot()
+            
+            # Add detection info
+            if frame_has_crash:
+                cv2.putText(annotated_frame, "CRASH DETECTED!", (50, 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                crash_detected_any_frame = True
+            
+            # Add processing info to frame
+            cv2.putText(annotated_frame, f"Frame: {frame_count}", (width - 200, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            
+            # Write the frame to output video
+            out.write(annotated_frame)
+            frame_count += 1
+            
+            # Progress update every 100 frames
+            if frame_count % 100 == 0:
+                print(f"📊 Processed {frame_count} frames...")
         
-        # Status text
-        status_text = "🚨 CRASH DETECTED!" if crash_detected else "✅ No Crash - Normal"
-        status_color = crash_color if crash_detected else normal_color
-        
-        status_bbox = draw.textbbox((0, 0), status_text)
-        status_width = status_bbox[2] - status_bbox[0]
-        draw.rectangle([10, 10, status_width + 30, 50], fill=status_color)
-        draw.text((20, 15), status_text, fill=text_color)
-        
-        # Save annotated frame
-        annotated_filename = f"annotated_frame_{frame_number}_{os.path.basename(video_path)}.jpg"
-        annotated_path = os.path.join(settings.MEDIA_ROOT, 'uploads', annotated_filename)
-        image.save(annotated_path)
-        
+        # Release everything
         cap.release()
-        return f"uploads/{annotated_filename}"
+        out.release()
+        
+        # Final decision
+        final_crash_detected = crash_detected_any_frame and (crash_frames / total_frames > 0.05) if total_frames > 0 else False
+        
+        print(f"✅ Processing complete: {crash_frames}/{total_frames} frames had crash detection")
+        print(f"🎯 Final crash decision: {final_crash_detected}")
+        print(f"💾 Output saved to: {output_path}")
+        
+        # Verify the file was created
+        if os.path.exists(output_path):
+            file_size = os.path.getsize(output_path) / (1024 * 1024)  # MB
+            print(f"📁 Output file size: {file_size:.2f} MB")
+        else:
+            print("❌ Output file was not created!")
+            return None
+        
+        # Save processed video to model
+        video_upload.processed_video.name = f'processed_videos/{output_filename}'
+        video_upload.crash_detected = final_crash_detected
+        video_upload.processing_complete = True
+        video_upload.save()
+        
+        return {
+            'crash_detected': final_crash_detected,
+            'frames_processed': frame_count,
+            'crash_frames': crash_frames
+        }
+        
+    except Exception as e:
+        print(f"❌ Error processing video: {e}")
+        video_upload.processing_complete = True
+        video_upload.save()
+        return None
+
+def home(request):
+    """Home page with video upload form"""
+    if request.method == 'POST':
+        form = VideoUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            video_upload = form.save()
+            
+            # Process video
+            result = process_video(video_upload)
+            
+            if result:
+                # Get the actual URL for the processed video
+                if video_upload.processed_video:
+                    processed_video_url = video_upload.processed_video.url
+                    print(f"🌐 Processed video URL: {processed_video_url}")
+                else:
+                    processed_video_url = None
+                    print("❌ No processed video URL available")
+                
+                return render(request, 'dashboard/result.html', {
+                    'result': result, 
+                    'video_upload': video_upload,
+                    'crash_detected': result['crash_detected'],
+                    'processed_video_url': processed_video_url
+                })
+            else:
+                return render(request, 'dashboard/upload.html', {'form': form, 'error': 'Processing failed. Check console for details.'})
+    else:
+        form = VideoUploadForm()
+    
+    return render(request, 'dashboard/upload.html', {'form': form})
+
+def download_processed_video(request, video_id):
+    """Download processed video file"""
+    video_upload = get_object_or_404(VideoUpload, id=video_id)
+    
+    if video_upload.processed_video:
+        file_path = video_upload.processed_video.path
+        
+        print(f"📥 Download request for: {file_path}")
+        
+        if os.path.exists(file_path):
+            # Get safe filename for download
+            original_filename = os.path.basename(file_path)
+            safe_filename = get_valid_filename(original_filename)
+            
+            # Ensure it has .mp4 extension
+            if not safe_filename.lower().endswith('.mp4'):
+                safe_filename += '.mp4'
+            
+            print(f"📄 Serving file: {file_path} as {safe_filename}")
+            
+            try:
+                response = FileResponse(
+                    open(file_path, 'rb'),
+                    content_type='video/mp4'
+                )
+                response['Content-Disposition'] = f'attachment; filename="{safe_filename}"'
+                response['Content-Length'] = os.path.getsize(file_path)
+                return response
+            except Exception as e:
+                print(f"❌ File response error: {e}")
+                return HttpResponse("Error serving file", status=500)
+        else:
+            print(f"❌ File not found: {file_path}")
+            return HttpResponse("Processed video file not found on server", status=404)
+    
+    return HttpResponse("Processed video not found in database", status=404)
+
+def view_processed_video(request, video_id):
+    """View processed video in browser"""
+    video_upload = get_object_or_404(VideoUpload, id=video_id)
+    
+    if video_upload.processed_video:
+        video_url = video_upload.processed_video.url
+        print(f"👀 View request - Video URL: {video_url}")
+        
+        return render(request, 'dashboard/video_player.html', {
+            'video_upload': video_upload,
+            'video_url': video_url
+        })
+    
+    return HttpResponse("Processed video not found", status=404)
+
+# Helper function for safe filenames
+def get_valid_filename(name):
+    """Return the given string converted to a string that can be used for a clean filename."""
+    import re
+    s = str(name).strip().replace(' ', '_')
+    s = re.sub(r'(?u)[^-\w.]', '', s)
+    return s
+
+active_camera_streams = defaultdict(dict)
+stream_lock = threading.Lock()
+
+def generate_camera_frames(camera_id, rtsp_url):
+    """Generate frames for a specific camera stream"""
+    cap = cv2.VideoCapture(rtsp_url)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    
+    while active_camera_streams.get(camera_id, {}).get('active', False):
+        try:
+            ret, frame = cap.read()
+            if not ret:
+                print(f"❌ Camera {camera_id}: Failed to read frame")
+                time.sleep(1)
+                continue
+            
+            # Resize for performance
+            frame = cv2.resize(frame, (640, 480))
+            
+            # If AI is enabled, process with YOLO
+            if active_camera_streams.get(camera_id, {}).get('ai_enabled', False):
+                results = model(frame, imgsz=320, conf=0.5, verbose=False)
+                
+                # Check for crashes
+                crash_detected = any(
+                    any(keyword in model.names[int(box.cls[0])].lower() for keyword in ['crash', 'accident'])
+                    for result in results if result.boxes is not None
+                    for box in result.boxes
+                )
+                
+                # Annotate frame if crash detected
+                if crash_detected:
+                    annotated_frame = results[0].plot()
+                    # Add crash alert text
+                    cv2.putText(annotated_frame, "🚨 CRASH DETECTED!", (10, 30),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    frame = annotated_frame
+                
+                # Update detection status
+                with stream_lock:
+                    if camera_id in active_camera_streams:
+                        active_camera_streams[camera_id]['last_detection'] = {
+                            'crash_detected': crash_detected,
+                            'timestamp': time.time()
+                        }
+            
+            # Encode frame to JPEG
+            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ret:
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+        except Exception as e:
+            print(f"❌ Camera {camera_id} stream error: {e}")
+            time.sleep(1)
     
     cap.release()
-    # Fallback to original file if frame extraction fails
-    return f"uploads/{os.path.basename(video_path)}"
+    print(f"🛑 Camera {camera_id} stream stopped")
 
-def simulate_detection(image_path):
-    """
-    Fallback simulation when YOLOv8 is not available
-    For demonstration purposes only
-    """
-    import random
-    
-    # Simulate detection with random results
-    crash_detected = random.choice([True, False])
-    confidence = random.uniform(75, 98) if crash_detected else random.uniform(60, 85)
-    
-    # Create a simple annotated image for simulation
+def camera_stream(request, camera_id):
+    """Stream video for a specific camera"""
     try:
-        image = Image.open(image_path)
-        draw = ImageDraw.Draw(image)
+        with stream_lock:
+            camera_data = active_camera_streams.get(camera_id, {})
+            if not camera_data.get('active', False):
+                return HttpResponse("Camera not active", status=404)
         
-        # Add simulated status text
-        status_text = "🚨 CRASH DETECTED!" if crash_detected else "✅ No Crash - Normal"
-        status_color = (255, 0, 0) if crash_detected else (0, 255, 0)
-        text_color = (255, 255, 255)
+        response = StreamingHttpResponse(
+            generate_camera_frames(camera_id, camera_data['rtsp_url']),
+            content_type='multipart/x-mixed-replace; boundary=frame'
+        )
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response['Pragma'] = 'no-cache'
+        response['Expires'] = '0'
+        return response
         
-        status_bbox = draw.textbbox((0, 0), status_text)
-        status_width = status_bbox[2] - status_bbox[0]
-        draw.rectangle([10, 10, status_width + 30, 50], fill=status_color)
-        draw.text((20, 15), status_text, fill=text_color)
-        
-        # Save annotated image
-        annotated_filename = f"simulated_{os.path.basename(image_path)}"
-        annotated_path = os.path.join(settings.MEDIA_ROOT, 'uploads', annotated_filename)
-        image.save(annotated_path)
-        
-        annotated_path_url = f"uploads/{annotated_filename}"
     except Exception as e:
-        # If annotation fails, use original path
-        annotated_path_url = f"uploads/{os.path.basename(image_path)}"
-    
-    return {
-        'crash_detected': crash_detected,
-        'status': 'Crash Detected' if crash_detected else 'No Crash',
-        'confidence': round(confidence, 2),
-        'vehicle_count': random.randint(0, 4),
-        'crash_reason': "Simulated detection" if crash_detected else "",
-        'annotated_path': f"/media/{annotated_path_url}"
-    }
+        print(f"❌ Camera {camera_id} stream endpoint error: {e}")
+        return HttpResponse("Stream error", status=500)
 
 @login_required
-def get_recent_detections(request):
-    """
-    API endpoint to fetch recent detections for dashboard
-    """
-    try:
-        offset = int(request.GET.get('offset', 0))
-        limit = int(request.GET.get('limit', 5))
+def start_camera_stream(request):
+    """Start video stream for a camera"""
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        camera_id = data.get('camera_id')
+        rtsp_url = data.get('rtsp_url')
+        camera_name = data.get('camera_name', 'Camera')
         
-        # Get all detections ordered by newest first
-        all_detections = Detection.objects.all().order_by('-timestamp')
-        
-        # Apply pagination
-        start = offset
-        end = offset + limit
-        detections_page = all_detections[start:end]
-        
-        detections_list = []
-        for detection in detections_page:
-            # Check if it's a video by file extension
-            is_video = False
-            if detection.image_path:
-                video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm']
-                is_video = any(detection.image_path.lower().endswith(ext) for ext in video_extensions)
+        with stream_lock:
+            if camera_id in active_camera_streams:
+                return JsonResponse({'error': 'Camera stream already running'}, status=400)
             
-            detections_list.append({
-                'id': detection.id,
-                'detection_id': detection.id,
-                'timestamp': detection.timestamp.isoformat(),
-                'status': detection.status,
-                'confidence': detection.confidence,
-                'crash_detected': detection.crash_detected,
-                'image_path': detection.image_path,
-                'vehicle_count': getattr(detection, 'vehicle_count', 0),
-                'crash_reason': getattr(detection, 'crash_reason', ''),
-                'is_video': is_video
+            # Start camera stream
+            active_camera_streams[camera_id] = {
+                'rtsp_url': rtsp_url,
+                'camera_name': camera_name,
+                'active': True,
+                'ai_enabled': False,
+                'last_detection': None
+            }
+            
+            print(f"🎥 Started stream for {camera_name} ({camera_id})")
+            
+            return JsonResponse({
+                'status': 'success',
+                'message': f'Stream started for {camera_name}',
+                'stream_url': f'/camera-stream/{camera_id}/'
             })
+
+@login_required
+def stop_camera_stream(request):
+    """Stop video stream for a camera"""
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        camera_id = data.get('camera_id')
         
-        return JsonResponse({
-            'detections': detections_list,
-            'has_more': len(all_detections) > end,
-            'total': all_detections.count()
-        })
+        with stream_lock:
+            if camera_id in active_camera_streams:
+                active_camera_streams[camera_id]['active'] = False
+                del active_camera_streams[camera_id]
+                
+                return JsonResponse({
+                    'status': 'success', 
+                    'message': f'Stream stopped for camera {camera_id}'
+                })
         
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        return JsonResponse({'error': 'Camera stream not found'}, status=404)
+
+@login_required
+def toggle_camera_ai(request):
+    """Toggle AI detection for a camera"""
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        camera_id = data.get('camera_id')
+        ai_enabled = data.get('ai_enabled')
+        
+        with stream_lock:
+            if camera_id in active_camera_streams:
+                active_camera_streams[camera_id]['ai_enabled'] = ai_enabled
+                
+                return JsonResponse({
+                    'status': 'success',
+                    'message': f'AI {"enabled" if ai_enabled else "disabled"} for camera {camera_id}'
+                })
+        
+        return JsonResponse({'error': 'Camera stream not found'}, status=404)
+
+@login_required
+def get_camera_status(request, camera_id):
+    """Get status for a specific camera"""
+    with stream_lock:
+        camera_data = active_camera_streams.get(camera_id, {})
+    
+    if camera_data:
+        last_detection = camera_data.get('last_detection', {})
+        crash_status = "True" if last_detection.get('crash_detected') else "False"
+        ai_status = "True" if camera_data.get('ai_enabled') else "False"
+        return HttpResponse(f"Crash:{crash_status}|AI:{ai_status}|Camera:{camera_id}")
+    
+    return HttpResponse("Crash:False|AI:False|Camera:inactive")
