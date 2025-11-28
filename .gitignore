@@ -63,7 +63,6 @@ venv.bak/
 .env.*.local
 
 # YOLOv8 models (large files)
-*.pt
 *.pth
 *.weights
 runs/
