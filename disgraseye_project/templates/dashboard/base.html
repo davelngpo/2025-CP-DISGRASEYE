@@ -5,13 +5,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}DisgrasEye{% endblock %}</title>
+
     <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <!-- Tailwind CSS -->
+
+    <!-- Tailwind CSS via CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
+
+    <!-- Supabase JS v2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <script>
         tailwind.config = {
             theme: {
@@ -30,82 +36,86 @@
             }
         }
     </script>
-    
+
     <style>
-        /* Unified animations */
         .pulse-alert {
             animation: pulse 2s infinite;
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
         }
-        .pulse-slow { 
-            animation: pulse-slow 3s ease-in-out infinite; 
-        }
-        .slide-up { 
-            animation: slide-up 0.6s ease-out; 
-        }
-        
         @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
+            0% { transform: scale(0.95); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+            100% { transform: scale(0.95); }
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #0A192F 0%, #112240 50%, #1E293B 100%);
+        }
+        .pulse-slow {
+            animation: pulse-slow 3s infinite;
         }
         @keyframes pulse-slow {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            0%, 100% { opacity: 0.1; transform: scale(1); }
+            50% { opacity: 0.2; transform: scale(1.05); }
         }
-        @keyframes slide-up {
-            from { 
-                opacity: 0; 
-                transform: translateY(30px); 
-            }
-            to { 
-                opacity: 1; 
-                transform: translateY(0); 
-            }
+        .slide-up {
+            animation: slideUp 0.8s ease-out;
         }
-        
-        .gradient-bg {
-            background: linear-gradient(135deg, #0A192F 0%, #1E3A8A 100%);
-        }
-        .glass-effect {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        /* Camera grid */
-        .camera-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-        }
-        .camera-feed {
-            background: #000;
-            border-radius: 12px;
-            overflow: hidden;
-            position: relative;
-        }
-        .camera-status {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
     </style>
-    
+
     {% block extra_head %}{% endblock %}
 </head>
+
 <body class="bg-darkblue text-graylight font-sans">
 
-<!-- Header -->
+<!-- HEADER -->
 <header class="flex justify-between items-center p-4 bg-[#091527] border-b border-sky/30">
     <h1 class="text-xl font-bold text-sky flex items-center gap-2">
         <i class="bi bi-exclamation-triangle text-alert"></i> DisgrasEye Dashboard
     </h1>
-    <div class="flex items-center gap-4">
-        <span class="text-sm text-gray-400" id="lastUpdate">Last update: Loading...</span>
+
+    <div class="flex items-center gap-6 relative">
+        <button id="testAlertBtn"
+            class="bg-yellow-500 hover:bg-yellow-600 text-black px-4 py-2 rounded-lg flex items-center gap-2 transition">
+            <i class="bi bi-lightning-charge"></i> Test Alert
+        </button>
+
+        <div class="relative">
+            <button id="notifBtn" class="relative p-2 hover:bg-gray-800 rounded-lg transition">
+                <i class="bi bi-bell text-xl"></i>
+                <span id="notifCount"
+                    class="hidden absolute -top-1 -right-1 bg-alert text-white text-xs h-5 w-5 rounded-full flex items-center justify-center pulse-alert">
+                    0
+                </span>
+            </button>
+
+            <div id="notifDropdown"
+                class="hidden absolute right-0 mt-2 w-80 bg-cardbg rounded-lg shadow-xl z-50 border border-gray-700 max-h-96 overflow-y-auto">
+                <div class="p-3 border-b border-gray-700 font-semibold text-sky flex justify-between">
+                    <span>Alerts</span>
+                    <button id="markAllRead" class="text-xs text-sky hover:underline hidden">Mark all read</button>
+                </div>
+
+                <div id="notifLoading" class="p-6 text-center">
+                    <div class="animate-spin h-6 w-6 border-2 border-sky border-t-transparent rounded-full mx-auto"></div>
+                    <p class="mt-2 text-sm text-gray-400">Loading alerts...</p>
+                </div>
+
+                <ul id="notifList" class="divide-y divide-gray-700 text-sm"></ul>
+
+                <div id="notifEmpty" class="hidden p-6 text-center text-gray-400">
+                    <i class="bi bi-bell-slash text-xl mb-2"></i>
+                    <p>No alerts yet</p>
+                    <p class="text-xs mt-1">Click Test Alert to create one</p>
+                </div>
+            </div>
+        </div>
+
+        <span id="lastUpdate" class="text-sm text-gray-400">Last update: --</span>
+
         <form action="{% url 'logout' %}" method="post">
             {% csrf_token %}
             <button type="submit" class="bg-alert hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition">
@@ -115,36 +125,286 @@
     </div>
 </header>
 
-<div class="flex flex-col lg:flex-row min-h-screen">
-
-    <!-- Sidebar -->
-    <aside class="w-full lg:w-64 bg-[#0F172A] p-4 lg:min-h-screen">
-        <nav class="flex flex-row lg:flex-col gap-2 lg:gap-4 overflow-x-auto lg:overflow-x-visible">
-            <a href="{% url 'dashboard' %}" class="flex items-center px-4 py-2 {% if request.resolver_match.url_name == 'dashboard' %}bg-sky{% else %}hover:bg-gray-800{% endif %} rounded-lg transition">
-                <i class="bi bi-house mr-3"></i><span class="hidden sm:inline">Dashboard</span>
+<div class="flex min-h-screen">
+    <aside class="w-64 bg-[#0F172A] p-4">
+        <nav class="flex flex-col gap-3">
+            <a href="{% url 'dashboard' %}" class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800 transition">
+                <i class="bi bi-house mr-3"></i> Dashboard
             </a>
-            <a href="{% url 'cctv_monitoring' %}" class="flex items-center px-4 py-2 {% if request.resolver_match.url_name == 'cctv_monitoring' %}bg-sky{% else %}hover:bg-gray-800{% endif %} rounded-lg transition">
-                <i class="bi bi-camera-video mr-3"></i><span class="hidden sm:inline">CCTV Monitoring</span>
+            <a href="{% url 'cctv_monitoring' %}" class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800 transition">
+                <i class="bi bi-camera-video mr-3"></i> CCTV Monitoring
             </a>
-            <a href="{% url 'live_monitoring' %}" class="flex items-center px-4 py-2 hover:bg-gray-800 rounded-lg transition">
-                <i class="bi bi-broadcast mr-3"></i><span class="hidden sm:inline">Live Detection</span>
+            <a href="{% url 'live_monitoring' %}" class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800 transition">
+                <i class="bi bi-broadcast mr-3"></i> Live Detection
             </a>
-            <a href="{% url 'reports' %}" class="flex items-center px-4 py-2 {% if request.resolver_match.url_name == 'reports' %}bg-sky{% else %}hover:bg-gray-800{% endif %} rounded-lg transition">
-                <i class="bi bi-graph-up mr-3"></i><span class="hidden sm:inline">Reports</span>
+            <a href="{% url 'reports' %}" class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800 transition">
+                <i class="bi bi-graph-up mr-3"></i> Reports
             </a>
-            <a href="{% url 'settings' %}" class="flex items-center px-4 py-2 {% if request.resolver_match.url_name == 'settings' %}bg-sky{% else %}hover:bg-gray-800{% endif %} rounded-lg transition">
-                <i class="bi bi-gear mr-3"></i><span class="hidden sm:inline">Settings</span>
+            <a href="{% url 'settings' %}" class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800 transition">
+                <i class="bi bi-gear mr-3"></i> Settings
             </a>
         </nav>
     </aside>
 
-    <!-- Main Content -->
-    <main class="flex-1 p-6 lg:p-8 bg-[#112240]">
+    <main class="flex-1 p-6 bg-darkbg">
         {% block content %}{% endblock %}
     </main>
 </div>
 
-<script src="{% static 'dashboard/js/main.js' %}"></script>
+<!-- ================= SCRIPT ================= -->
+<script>
+// Use a different variable name to avoid conflict
+let supabaseClient = null;
+
+// Initialize Supabase only if not already initialized
+function initSupabase() {
+    if (!supabaseClient) {
+        try {
+            // Use Django context variables passed from the view
+            const supabaseUrl = "{{ SUPABASE_URL|default:'https://ivigoibymrcvaftgayqv.supabase.co' }}";
+            const supabaseAnonKey = "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aWdvaWJ5bXJjdmFmdGdheXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MDI2MDgsImV4cCI6MjA3OTQ3ODYwOH0.c3MoFVyNGXwZ3zqtgWz62Du0WfA7pranyAXDwRpy5sw' }}";
+            
+            supabaseClient = supabase.createClient(supabaseUrl, supabaseAnonKey);
+            console.log("Supabase initialized with URL:", supabaseUrl);
+            
+            // Also store in window for backward compatibility
+            window._supabase = supabaseClient;
+        } catch (error) {
+            console.error("Failed to initialize Supabase:", error);
+        }
+    }
+    return supabaseClient;
+}
+
+// Initialize immediately
+initSupabase();
+
+/* ELEMENTS */
+const notifBtn = document.getElementById("notifBtn");
+const notifDropdown = document.getElementById("notifDropdown");
+const notifList = document.getElementById("notifList");
+const notifCount = document.getElementById("notifCount");
+const notifLoading = document.getElementById("notifLoading");
+const notifEmpty = document.getElementById("notifEmpty");
+const markAllReadBtn = document.getElementById("markAllRead");
+const testAlertBtn = document.getElementById("testAlertBtn");
+
+/* HELPERS */
+function timeAgo(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const seconds = Math.floor((now - date) / 1000);
+    
+    if (seconds < 60) return "Just now";
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+function updateLastUpdate() {
+    document.getElementById("lastUpdate").textContent =
+        "Last update: " + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+}
+
+/* DROPDOWN */
+notifBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    notifDropdown.classList.toggle("hidden");
+    if (!notifDropdown.classList.contains('hidden')) {
+        loadNotifications();
+    }
+});
+
+document.addEventListener("click", (e) => {
+    if (!notifDropdown.contains(e.target) && !notifBtn.contains(e.target)) {
+        notifDropdown.classList.add("hidden");
+    }
+});
+
+/* LOAD ALERTS */
+async function loadNotifications() {
+    notifLoading.classList.remove("hidden");
+    notifEmpty.classList.add("hidden");
+    notifList.innerHTML = "";
+
+    try {
+        const client = initSupabase();
+        if (!client) {
+            throw new Error("Supabase client not initialized");
+        }
+
+        const { data, error } = await client
+            .from("alerts")
+            .select("*")
+            .order("alert_time", { ascending: false })
+            .limit(10);
+
+        if (error) {
+            console.error("Error loading alerts:", error);
+            notifList.innerHTML = `
+                <li class="p-4 text-center text-red-400">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <p class="text-sm">Error loading alerts</p>
+                </li>
+            `;
+            return;
+        }
+
+        let unread = 0;
+
+        if (data && data.length > 0) {
+            data.forEach(alert => {
+                const isUnread = alert.response_status === "Unacknowledged";
+                if (isUnread) unread++;
+
+                notifList.innerHTML += `
+                    <li class="p-3 hover:bg-gray-800/50 ${isUnread ? 'bg-blue-900/20' : ''}">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <p class="font-medium text-sm">${alert.message || 'New alert'}</p>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <span class="text-xs ${isUnread ? 'text-red-400' : 'text-gray-400'}">
+                                        ${alert.response_status}
+                                    </span>
+                                    <span class="text-xs text-gray-500">•</span>
+                                    <span class="text-xs text-gray-500">${timeAgo(alert.alert_time)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                `;
+            });
+        } else {
+            notifEmpty.classList.remove("hidden");
+        }
+
+        notifCount.textContent = unread;
+        notifCount.classList.toggle("hidden", unread === 0);
+        markAllReadBtn.classList.toggle("hidden", unread === 0);
+        
+        updateLastUpdate();
+        
+    } catch (err) {
+        console.error("Unexpected error:", err);
+        notifList.innerHTML = `
+            <li class="p-4 text-center text-red-400">
+                <i class="bi bi-exclamation-triangle"></i>
+                <p class="text-sm">Connection error</p>
+            </li>
+        `;
+    } finally {
+        notifLoading.classList.add("hidden");
+    }
+}
+
+/* MARK ALL READ */
+markAllReadBtn.addEventListener('click', async () => {
+    try {
+        const client = initSupabase();
+        if (!client) {
+            throw new Error("Supabase client not initialized");
+        }
+        
+        await client
+            .from("alerts")
+            .update({ response_status: "Acknowledged" })
+            .eq("response_status", "Unacknowledged");
+        
+        loadNotifications();
+        alert("✓ All alerts marked as read");
+    } catch (err) {
+        console.error("Error marking all as read:", err);
+        alert("✗ Failed to mark all as read");
+    }
+});
+
+/* TEST ALERT */
+testAlertBtn.addEventListener('click', async () => {
+    const originalText = testAlertBtn.innerHTML;
+    const originalState = testAlertBtn.disabled;
+    
+    try {
+        // Show loading
+        testAlertBtn.disabled = true;
+        testAlertBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Creating...';
+        
+        const client = initSupabase();
+        if (!client) {
+            throw new Error("Supabase client not initialized");
+        }
+        
+        // Generate test message
+        const locations = ['Main Street', 'Highway', 'Intersection', 'Bridge'];
+        const randomLocation = locations[Math.floor(Math.random() * locations.length)];
+        const timestamp = new Date().toLocaleTimeString();
+        
+        const testMessage = `🚨 TEST: Accident detected at ${randomLocation} at ${timestamp}`;
+        
+        console.log("Inserting test alert...");
+        
+        // Try with null values for foreign keys
+        const { data, error } = await client
+            .from("alerts")
+            .insert({
+                message: testMessage,
+                alert_time: new Date().toISOString(),
+                response_status: "Unacknowledged",
+                detection_id: null,
+                sent_to: null
+            })
+            .select()
+            .single();
+        
+        if (error) {
+            throw new Error(`Database error: ${error.message}`);
+        }
+        
+        alert(`✅ Test alert created!\nID: ${data.alert_id}`);
+        console.log("Alert created successfully:", data);
+        
+        // Refresh notifications
+        loadNotifications();
+        
+    } catch (err) {
+        console.error("Test failed:", err);
+        alert(`❌ Test failed:\n${err.message}`);
+        
+    } finally {
+        // Restore button
+        testAlertBtn.disabled = originalState;
+        testAlertBtn.innerHTML = originalText;
+    }
+});
+
+/* REALTIME */
+function setupRealtime() {
+    const client = initSupabase();
+    if (client) {
+        client
+            .channel("alerts-realtime")
+            .on("postgres_changes",
+                { event: "INSERT", schema: "public", table: "alerts" },
+                (payload) => {
+                    console.log("New alert detected:", payload.new);
+                    loadNotifications();
+                }
+            )
+            .subscribe();
+    }
+}
+
+/* INIT */
+document.addEventListener("DOMContentLoaded", () => {
+    updateLastUpdate();
+    loadNotifications();
+    setupRealtime();
+    
+    // Auto-update every 30 seconds
+    setInterval(loadNotifications, 30000);
+    setInterval(updateLastUpdate, 60000);
+});
+</script>
+
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

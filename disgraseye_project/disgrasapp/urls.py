@@ -11,7 +11,7 @@ urlpatterns = [
     # Dashboard sections
     path('dashboard/cctv/', views.cctv_monitoring, name='cctv_monitoring'),
     path('dashboard/reports/', views.reports, name='reports'),
-    path('dashboard/settings/', views.settings, name='settings'),
+    path('dashboard/settings/', views.site_settings, name='settings'),
 
    # Video processing URLs
     path('download/<int:video_id>/', views.download_processed_video, name='download_processed_video'),

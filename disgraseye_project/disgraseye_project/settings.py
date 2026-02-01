@@ -12,6 +12,12 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 from pathlib import Path
 
+from decouple import config
+
+SUPABASE_URL = config("SUPABASE_URL")
+SUPABASE_ANON_KEY = config("SUPABASE_ANON_KEY")
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -138,3 +144,4 @@ os.makedirs(os.path.join(MEDIA_ROOT, 'uploads'), exist_ok=True)
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/landing_page/'
 LOGOUT_REDIRECT_URL = '/'
+

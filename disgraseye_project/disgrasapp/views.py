@@ -6,7 +6,8 @@ import json
 from django.shortcuts import render, get_object_or_404
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
-from django.conf import settings    
+from django.conf import settings
+from django.conf import settings as django_settings  
 from django.http import HttpResponse, FileResponse, StreamingHttpResponse
 from ultralytics import YOLO
 from django.contrib.auth.decorators import login_required
@@ -33,19 +34,40 @@ current_rtsp_url = ""
 
 @login_required
 def dashboard(request):
-    return render(request, 'dashboard/dashboard.html')
+    return render(request, 'dashboard/dashboard.html', {
+        "SUPABASE_URL": settings.SUPABASE_URL,
+        "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
+    })
+
 
 @login_required
 def cctv_monitoring(request):
-    return render(request, 'dashboard/cctv_monitoring.html')
+    return render(request, 'dashboard/cctv_monitoring.html', {
+        "SUPABASE_URL": settings.SUPABASE_URL,
+        "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
+    })
+
+@login_required
+def live_monitoring(request):
+    return render(request, 'dashboard/live_monitoring.html', {
+        "SUPABASE_URL": settings.SUPABASE_URL,
+        "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
+    })
 
 @login_required
 def reports(request):
-    return render(request, 'dashboard/reports.html')
+    return render(request, 'dashboard/reports.html', {
+        "SUPABASE_URL": settings.SUPABASE_URL,
+        "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
+    })
 
 @login_required
-def settings(request):
-    return render(request, 'dashboard/settings.html')
+def site_settings(request):
+    return render(request, 'dashboard/settings.html', {
+        "SUPABASE_URL": settings.SUPABASE_URL,
+        "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
+    })
+
 
 def logout_view(request):
     logout(request)

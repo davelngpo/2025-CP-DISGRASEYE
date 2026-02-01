@@ -5,203 +5,318 @@
 
 {% block extra_scripts %}
 <script>
-// Dashboard specific JavaScript
-let dashboardData = {};
-
-document.addEventListener('DOMContentLoaded', function() {
-    loadDashboardData();
-    setInterval(loadDashboardData, 30000);
-});
-
-function loadDashboardData() {
-    const lastUpdateElement = document.getElementById('lastUpdate');
-    if (lastUpdateElement) {
-        lastUpdateElement.textContent = 'Last update: Loading...';
-    }
+// Dashboard specific JavaScript - wrapped in IIFE to avoid conflicts
+(function() {
+    'use strict';
     
-    fetch('/api/detections/')
-        .then(response => {
-            if (!response.ok) throw new Error('Network response was not ok');
-            return response.json();
-        })
-        .then(data => {
-            if (data.detections) {
-                processDashboardData(data.detections);
-                updateLastUpdateTime();
+    let dashboardData = {};
+    let dashboardSupabase = null;
+
+    function getSupabaseClient() {
+        if (!dashboardSupabase) {
+            // Try to get from window (set by base.html)
+            if (window._supabase) {
+                dashboardSupabase = window._supabase;
             } else {
-                throw new Error('No detections data received');
+                // Initialize directly if needed
+                const supabaseUrl = "{{ SUPABASE_URL|default:'https://ivigoibymrcvaftgayqv.supabase.co' }}";
+                const supabaseAnonKey = "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aWdvaWJ5bXJjdmFmdGdheXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MDI2MDgsImV4cCI6MjA3OTQ3ODYwOH0.c3MoFVyNGXwZ3zqtgWz62Du0WfA7pranyAXDwRpy5sw' }}";
+                
+                dashboardSupabase = supabase.createClient(supabaseUrl, supabaseAnonKey);
             }
-        })
-        .catch(error => {
+        }
+        return dashboardSupabase;
+    }
+
+    async function loadDashboardData() {
+        const lastUpdateElement = document.getElementById('lastUpdate');
+        if (lastUpdateElement) {
+            lastUpdateElement.textContent = 'Loading...';
+        }
+        
+        try {
+            const supabaseClient = getSupabaseClient();
+            
+            if (!supabaseClient) {
+                console.error('Supabase client not available');
+                useFallbackData();
+                return;
+            }
+            
+            // Fetch data from your actual tables
+            const { data: accidentData, error: accidentError } = await supabaseClient
+                .from('accident_detections')
+                .select('*')
+                .order('detection_time', { ascending: false })
+                .limit(50);
+            
+            if (accidentError) {
+                console.error('Error loading accident data:', accidentError);
+                useFallbackData();
+                return;
+            }
+            
+            // Fetch alerts for pending count
+            const { data: alertData, error: alertError } = await supabaseClient
+                .from('alerts')
+                .select('*')
+                .eq('response_status', 'Unacknowledged');
+            
+            if (alertError) {
+                console.error('Error loading alert data:', alertError);
+                useFallbackData();
+                return;
+            }
+            
+            // Process the data
+            processDashboardData(accidentData || [], alertData || []);
+            
+            // Update last update time
+            if (lastUpdateElement) {
+                lastUpdateElement.textContent = 'Last update: ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            }
+            
+        } catch (error) {
             console.error('Error loading dashboard data:', error);
             useFallbackData();
-        });
-}
-
-function processDashboardData(detections) {
-    const today = new Date().toDateString();
-    const accidentsToday = detections.filter(d => 
-        new Date(d.timestamp).toDateString() === today && d.crash_detected
-    ).length;
-    
-    const pendingAlerts = detections.filter(d => 
-        d.crash_detected && d.status.includes('Crash Detected')
-    ).length;
-    
-    const respondedCases = detections.filter(d => d.crash_detected).length - pendingAlerts;
-    const totalDetections = detections.length;
-    const crashDetectionRate = totalDetections > 0 ? 
-        Math.round((detections.filter(d => d.crash_detected).length / totalDetections) * 100) : 0;
-
-    // Update stats
-    updateElementText('accidentsToday', accidentsToday);
-    updateElementText('pendingAlerts', pendingAlerts);
-    updateElementText('respondedCases', respondedCases);
-    updateElementText('totalDetections', totalDetections);
-    updateElementText('crashDetectionRate', crashDetectionRate + '%');
-    
-    const detectionRateBar = document.getElementById('detectionRateBar');
-    if (detectionRateBar) {
-        detectionRateBar.style.width = crashDetectionRate + '%';
-    }
-
-    updateRecentAlerts(detections);
-    updateSystemStatus(detections);
-
-    dashboardData = {
-        accidentsToday, pendingAlerts, respondedCases, totalDetections, crashDetectionRate, recentDetections: detections
-    };
-}
-
-function updateElementText(elementId, text) {
-    const element = document.getElementById(elementId);
-    if (element) element.textContent = text;
-}
-
-function updateRecentAlerts(detections) {
-    const tbody = document.querySelector('#recentAlertsTable tbody');
-    const mobileView = document.getElementById('mobileAlertsView');
-    
-    if (!tbody || !mobileView) return;
-    
-    const recentDetections = detections.slice(0, 8);
-    
-    if (recentDetections.length > 0) {
-        // Desktop table view
-        tbody.innerHTML = recentDetections.map(detection => `
-            <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors">
-                <td class="py-3 px-4">${new Date(detection.timestamp).toLocaleString()}</td>
-                <td class="py-3 px-4">CCTV Camera ${detection.id || 'Unknown'}</td>
-                <td class="py-3 px-4">
-                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                        detection.crash_detected ? 'bg-alert/50 text-alert' : 'bg-greenlight/50 text-greenlight'
-                    }">
-                        ${detection.crash_detected ? 'High' : 'Low'}
-                    </span>
-                </td>
-                <td class="py-3 px-4 ${detection.crash_detected ? 'text-alert' : 'text-greenlight'} flex items-center gap-1">
-                    <i class="bi ${detection.crash_detected ? 'bi-exclamation-triangle' : 'bi-check-circle'}"></i>
-                    ${detection.status}
-                </td>
-                <td class="py-3 px-4 text-right">${detection.confidence || 'N/A'}%</td>
-            </tr>
-        `).join('');
-
-        // Mobile card view
-        mobileView.innerHTML = recentDetections.map(detection => `
-            <div class="bg-[#112240] rounded-lg p-4 border border-gray-600 mb-3">
-                <div class="flex justify-between items-start mb-2">
-                    <div class="flex items-center gap-2">
-                        <i class="bi ${detection.crash_detected ? 'bi-exclamation-triangle text-alert' : 'bi-check-circle text-greenlight'}"></i>
-                        <span class="font-semibold text-white">Camera ${detection.id || 'Unknown'}</span>
-                    </div>
-                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                        detection.crash_detected ? 'bg-alert/50 text-alert' : 'bg-greenlight/50 text-greenlight'
-                    }">
-                        ${detection.crash_detected ? 'High' : 'Low'}
-                    </span>
-                </div>
-                <div class="text-sm text-gray-400 mb-2">
-                    <i class="bi bi-clock mr-1"></i>${new Date(detection.timestamp).toLocaleString()}
-                </div>
-                <div class="text-sm mb-2 ${detection.crash_detected ? 'text-alert' : 'text-greenlight'}">
-                    ${detection.status}
-                </div>
-                <div class="flex justify-between items-center text-sm">
-                    <span class="text-gray-400">Confidence</span>
-                    <span class="font-semibold ${detection.crash_detected ? 'text-alert' : 'text-greenlight'}">
-                        ${detection.confidence || 'N/A'}%
-                    </span>
-                </div>
-            </div>
-        `).join('');
-    } else {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="5" class="py-8 text-center text-gray-500">
-                    <i class="bi bi-info-circle text-2xl mb-2"></i><br>
-                    No recent alerts found
-                </td>
-            </tr>
-        `;
-        mobileView.innerHTML = `
-            <div class="text-center py-8 text-gray-500">
-                <i class="bi bi-info-circle text-2xl mb-2"></i>
-                <p>No recent alerts found</p>
-            </div>
-        `;
-    }
-}
-
-function updateSystemStatus(detections) {
-    const statusElement = document.getElementById('systemStatus');
-    const statusIcon = document.getElementById('statusIcon');
-    const statusText = document.getElementById('statusText');
-    
-    if (!statusElement || !statusIcon || !statusText) return;
-    
-    if (detections.length > 0) {
-        const recentDetection = detections[0];
-        const timeDiff = new Date() - new Date(recentDetection.timestamp);
-        const minutesAgo = Math.floor(timeDiff / (1000 * 60));
-        
-        if (minutesAgo < 5) {
-            statusElement.className = 'bg-greenlight/20 text-greenlight text-sm px-3 py-1 rounded-full flex items-center gap-1';
-            statusIcon.className = 'bi bi-circle-fill animate-pulse';
-            statusText.textContent = 'System Active';
-        } else {
-            statusElement.className = 'bg-gold/20 text-gold text-sm px-3 py-1 rounded-full flex items-center gap-1';
-            statusIcon.className = 'bi bi-exclamation-triangle';
-            statusText.textContent = 'Delayed Data';
         }
-    } else {
-        statusElement.className = 'bg-alert/20 text-alert text-sm px-3 py-1 rounded-full flex items-center gap-1';
-        statusIcon.className = 'bi bi-exclamation-circle';
-        statusText.textContent = 'No Data';
     }
-}
 
-function updateLastUpdateTime() {
-    const now = new Date();
-    const lastUpdateElement = document.getElementById('lastUpdate');
-    if (lastUpdateElement) {
-        lastUpdateElement.textContent = `Last update: ${now.toLocaleTimeString()}`;
+    function processDashboardData(accidentDetections, alerts) {
+        const today = new Date().toDateString();
+        
+        // Calculate statistics
+        const accidentsToday = accidentDetections.filter(d => {
+            try {
+                const detectionDate = new Date(d.detection_time).toDateString();
+                return detectionDate === today && d.status === 'Pending';
+            } catch {
+                return false;
+            }
+        }).length;
+        
+        const pendingAlerts = alerts.length;
+        const respondedCases = accidentDetections.filter(d => d.status === 'Verified').length;
+        const totalDetections = accidentDetections.length;
+        
+        // Calculate detection rate
+        const crashDetectionRate = totalDetections > 0 ? 
+            Math.round((respondedCases / totalDetections) * 100) : 0;
+
+        // Update UI elements
+        updateElementText('accidentsToday', accidentsToday);
+        updateElementText('pendingAlerts', pendingAlerts);
+        updateElementText('respondedCases', respondedCases);
+        updateElementText('totalDetections', totalDetections);
+        updateElementText('crashDetectionRate', crashDetectionRate + '%');
+        
+        const detectionRateBar = document.getElementById('detectionRateBar');
+        if (detectionRateBar) {
+            detectionRateBar.style.width = crashDetectionRate + '%';
+        }
+
+        updateRecentAlerts(accidentDetections);
+        updateSystemStatus(accidentDetections);
+
+        // Store data for later use
+        dashboardData = {
+            accidentsToday, 
+            pendingAlerts, 
+            respondedCases, 
+            totalDetections, 
+            crashDetectionRate, 
+            recentDetections: accidentDetections
+        };
     }
-}
 
-function useFallbackData() {
-    const fallbackDetections = [
-        { id: 1, timestamp: new Date().toISOString(), crash_detected: true, confidence: 92, status: 'Crash Detected', crash_reason: 'Vehicle collision' },
-        { id: 2, timestamp: new Date(Date.now() - 3600000).toISOString(), crash_detected: false, confidence: 85, status: 'No Crash' },
-        { id: 3, timestamp: new Date(Date.now() - 7200000).toISOString(), crash_detected: true, confidence: 88, status: 'Crash Detected', crash_reason: 'Multiple vehicle accident' },
-        { id: 4, timestamp: new Date(Date.now() - 10800000).toISOString(), crash_detected: false, confidence: 91, status: 'No Crash' }
-    ];
-    
-    processDashboardData(fallbackDetections);
-    updateLastUpdateTime();
-}
+    function updateElementText(elementId, text) {
+        const element = document.getElementById(elementId);
+        if (element) element.textContent = text;
+    }
 
-window.loadDashboardData = loadDashboardData;
+    function updateRecentAlerts(detections) {
+        const tbody = document.querySelector('#recentAlertsTable tbody');
+        const mobileView = document.getElementById('mobileAlertsView');
+        
+        if (!tbody || !mobileView) return;
+        
+        // Get recent detections (first 8)
+        const recentDetections = detections.slice(0, 8);
+        
+        if (recentDetections.length > 0) {
+            // Desktop table view
+            tbody.innerHTML = recentDetections.map(detection => {
+                let detectionTime;
+                try {
+                    detectionTime = new Date(detection.detection_time).toLocaleString();
+                } catch {
+                    detectionTime = 'Invalid Date';
+                }
+                
+                return `
+                    <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors">
+                        <td class="py-3 px-4">${detectionTime}</td>
+                        <td class="py-3 px-4">Camera ${detection.camera_id || 'Unknown'}</td>
+                        <td class="py-3 px-4">
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                                detection.status === 'Pending' ? 'bg-alert/50 text-alert' : 'bg-greenlight/50 text-greenlight'
+                            }">
+                                ${detection.status === 'Pending' ? 'High' : 'Low'}
+                            </span>
+                        </td>
+                        <td class="py-3 px-4 ${detection.status === 'Pending' ? 'text-alert' : 'text-greenlight'} flex items-center gap-1">
+                            <i class="bi ${detection.status === 'Pending' ? 'bi-exclamation-triangle' : 'bi-check-circle'}"></i>
+                            ${detection.status || 'Unknown'}
+                        </td>
+                        <td class="py-3 px-4 text-right">${detection.confidence || 'N/A'}%</td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Mobile card view
+            mobileView.innerHTML = recentDetections.map(detection => {
+                let detectionTime;
+                try {
+                    detectionTime = new Date(detection.detection_time).toLocaleString();
+                } catch {
+                    detectionTime = 'Invalid Date';
+                }
+                
+                return `
+                <div class="bg-[#112240] rounded-lg p-4 border border-gray-600 mb-3">
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="flex items-center gap-2">
+                            <i class="bi ${detection.status === 'Pending' ? 'bi-exclamation-triangle text-alert' : 'bi-check-circle text-greenlight'}"></i>
+                            <span class="font-semibold text-white">Camera ${detection.camera_id || 'Unknown'}</span>
+                        </div>
+                        <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                            detection.status === 'Pending' ? 'bg-alert/50 text-alert' : 'bg-greenlight/50 text-greenlight'
+                        }">
+                            ${detection.status === 'Pending' ? 'High' : 'Low'}
+                        </span>
+                    </div>
+                    <div class="text-sm text-gray-400 mb-2">
+                        <i class="bi bi-clock mr-1"></i>${detectionTime}
+                    </div>
+                    <div class="text-sm mb-2 ${detection.status === 'Pending' ? 'text-alert' : 'text-greenlight'}">
+                        ${detection.status || 'Unknown'}
+                    </div>
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-gray-400">Confidence</span>
+                        <span class="font-semibold ${detection.status === 'Pending' ? 'text-alert' : 'text-greenlight'}">
+                            ${detection.confidence || 'N/A'}%
+                        </span>
+                    </div>
+                </div>
+            `;
+            }).join('');
+        } else {
+            // No data
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="5" class="py-8 text-center text-gray-500">
+                        <i class="bi bi-info-circle text-2xl mb-2"></i><br>
+                        No recent alerts found
+                    </td>
+                </tr>
+            `;
+            mobileView.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <i class="bi bi-info-circle text-2xl mb-2"></i>
+                    <p>No recent alerts found</p>
+                </div>
+            `;
+        }
+    }
+
+    function updateSystemStatus(detections) {
+        const statusElement = document.getElementById('systemStatus');
+        const statusIcon = document.getElementById('statusIcon');
+        const statusText = document.getElementById('statusText');
+        
+        if (!statusElement || !statusIcon || !statusText) return;
+        
+        if (detections.length > 0) {
+            const recentDetection = detections[0];
+            try {
+                const timeDiff = new Date() - new Date(recentDetection.detection_time);
+                const minutesAgo = Math.floor(timeDiff / (1000 * 60));
+                
+                if (minutesAgo < 5) {
+                    statusElement.className = 'bg-greenlight/20 text-greenlight text-sm px-3 py-1 rounded-full flex items-center gap-1';
+                    statusIcon.className = 'bi bi-circle-fill animate-pulse';
+                    statusText.textContent = 'System Active';
+                } else {
+                    statusElement.className = 'bg-gold/20 text-gold text-sm px-3 py-1 rounded-full flex items-center gap-1';
+                    statusIcon.className = 'bi bi-exclamation-triangle';
+                    statusText.textContent = 'Delayed Data';
+                }
+            } catch {
+                statusElement.className = 'bg-gold/20 text-gold text-sm px-3 py-1 rounded-full flex items-center gap-1';
+                statusIcon.className = 'bi bi-exclamation-triangle';
+                statusText.textContent = 'Invalid Date';
+            }
+        } else {
+            statusElement.className = 'bg-alert/20 text-alert text-sm px-3 py-1 rounded-full flex items-center gap-1';
+            statusIcon.className = 'bi bi-exclamation-circle';
+            statusText.textContent = 'No Data';
+        }
+    }
+
+    function useFallbackData() {
+        console.log('Using fallback data');
+        
+        // Create fallback data
+        const now = new Date();
+        const oneHourAgo = new Date(now - 3600000);
+        const twoHoursAgo = new Date(now - 7200000);
+        
+        const fallbackDetections = [
+            { 
+                detection_id: 1, 
+                detection_time: now.toISOString(), 
+                camera_id: 1, 
+                status: 'Pending', 
+                confidence: 92, 
+                frame_image: 'test1.jpg',
+                video_clip: 'test1.mp4'
+            },
+            { 
+                detection_id: 2, 
+                detection_time: oneHourAgo.toISOString(), 
+                camera_id: 2, 
+                status: 'Verified', 
+                confidence: 85,
+                frame_image: 'test2.jpg',
+                video_clip: 'test2.mp4'
+            },
+            { 
+                detection_id: 3, 
+                detection_time: twoHoursAgo.toISOString(), 
+                camera_id: 3, 
+                status: 'Pending', 
+                confidence: 88,
+                frame_image: 'test3.jpg',
+                video_clip: 'test3.mp4'
+            }
+        ];
+        
+        const fallbackAlerts = [
+            { alert_id: 1, response_status: 'Unacknowledged' }
+        ];
+        
+        processDashboardData(fallbackDetections, fallbackAlerts);
+    }
+
+    // Initialize when DOM is ready
+    document.addEventListener('DOMContentLoaded', function() {
+        loadDashboardData();
+        setInterval(loadDashboardData, 30000);
+    });
+
+    // Make function globally available
+    window.loadDashboardData = loadDashboardData;
+})();
 </script>
 {% endblock %}
 
@@ -292,7 +407,7 @@ window.loadDashboardData = loadDashboardData;
                         <i class="bi bi-heart-pulse text-sky"></i>
                         <h3 class="text-lg md:text-xl font-bold">System Status</h3>
                     </div>
-                    <span id="systemStatus" class="bg-greenlight/20 text-greenlight text-xs md:text-sm px-2 md:px-3 py-1 rounded-full flex items-center gap-1">
+                    <span id="systemStatus" class="bg-greenlight/20 text-greenlight text-sm px-3 py-1 rounded-full flex items-center gap-1">
                         <i id="statusIcon" class="bi bi-circle-fill animate-pulse"></i>
                         <span id="statusText">System Active</span>
                     </span>
@@ -372,7 +487,7 @@ window.loadDashboardData = loadDashboardData;
             </button>
         </div>
         
-        <!-- Desktop Table View (hidden on mobile) -->
+        <!-- Desktop Table View -->
         <div class="hidden md:block overflow-x-auto">
             <table class="w-full text-left" id="recentAlertsTable">
                 <thead class="bg-[#112240]">
@@ -395,7 +510,7 @@ window.loadDashboardData = loadDashboardData;
             </table>
         </div>
 
-        <!-- Mobile Card View (hidden on desktop) -->
+        <!-- Mobile Card View -->
         <div class="md:hidden p-4" id="mobileAlertsView">
             <div class="text-center py-8 text-gray-500">
                 <i class="bi bi-arrow-repeat text-2xl mb-2 animate-spin"></i>
