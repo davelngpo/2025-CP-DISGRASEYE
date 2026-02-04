@@ -3,6 +3,65 @@
 
 {% block title %}Dashboard | DisgrasEye{% endblock %}
 
+{% block extra_head %}
+<style>
+    /* Enhanced mobile styles */
+    @media (max-width: 640px) {
+        .gradient-bg {
+            padding: 1.5rem !important;
+        }
+        
+        .gradient-bg h1 {
+            font-size: 1.75rem !important;
+        }
+        
+        .stats-grid {
+            gap: 0.75rem !important;
+        }
+        
+        .stat-card {
+            padding: 1rem !important;
+        }
+        
+        .stat-card h2 {
+            font-size: 1.5rem !important;
+        }
+        
+        .quick-actions-grid {
+            gap: 0.5rem !important;
+        }
+        
+        .quick-action-btn {
+            padding: 0.75rem !important;
+        }
+        
+        .quick-action-btn i {
+            font-size: 1.25rem !important;
+        }
+    }
+    
+    /* Loading animations */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .fade-in {
+        animation: fadeIn 0.3s ease-out;
+    }
+    
+    /* Refresh button animation */
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    .spinning {
+        animation: spin 0.5s linear infinite;
+    }
+</style>
+{% endblock %}
+
 {% block extra_scripts %}
 <script>
 // Dashboard specific JavaScript - wrapped in IIFE to avoid conflicts
@@ -11,6 +70,8 @@
     
     let dashboardData = {};
     let dashboardSupabase = null;
+    let isRefreshing = false;
+    let refreshInterval;
 
     function getSupabaseClient() {
         if (!dashboardSupabase) {
@@ -28,10 +89,14 @@
         return dashboardSupabase;
     }
 
-    async function loadDashboardData() {
-        const lastUpdateElement = document.getElementById('lastUpdate');
-        if (lastUpdateElement) {
-            lastUpdateElement.textContent = 'Loading...';
+    async function loadDashboardData(showLoading = true) {
+        if (isRefreshing) return;
+        
+        isRefreshing = true;
+        const refreshBtn = document.querySelector('button[onclick*="loadDashboardData"]');
+        if (refreshBtn && showLoading) {
+            refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise spinning"></i> Refreshing...';
+            refreshBtn.disabled = true;
         }
         
         try {
@@ -43,49 +108,112 @@
                 return;
             }
             
-            // Fetch data from your actual tables
-            const { data: accidentData, error: accidentError } = await supabaseClient
-                .from('accident_detections')
-                .select('*')
-                .order('detection_time', { ascending: false })
-                .limit(50);
+            // Show loading states
+            if (showLoading) {
+                showLoadingStates();
+            }
+            
+            // Fetch data from your actual tables with error handling
+            const [accidentResponse, alertResponse] = await Promise.allSettled([
+                supabaseClient
+                    .from('accident_detections')
+                    .select('*')
+                    .order('detection_time', { ascending: false })
+                    .limit(50),
+                supabaseClient
+                    .from('alerts')
+                    .select('*')
+                    .eq('response_status', 'Unacknowledged')
+            ]);
+            
+            const accidentData = accidentResponse.status === 'fulfilled' && !accidentResponse.value.error 
+                ? accidentResponse.value.data 
+                : [];
+            const accidentError = accidentResponse.status === 'fulfilled' 
+                ? accidentResponse.value.error 
+                : accidentResponse.reason;
+                
+            const alertData = alertResponse.status === 'fulfilled' && !alertResponse.value.error 
+                ? alertResponse.value.data 
+                : [];
+            const alertError = alertResponse.status === 'fulfilled' 
+                ? alertResponse.value.error 
+                : alertResponse.reason;
             
             if (accidentError) {
                 console.error('Error loading accident data:', accidentError);
-                useFallbackData();
-                return;
             }
-            
-            // Fetch alerts for pending count
-            const { data: alertData, error: alertError } = await supabaseClient
-                .from('alerts')
-                .select('*')
-                .eq('response_status', 'Unacknowledged');
             
             if (alertError) {
                 console.error('Error loading alert data:', alertError);
-                useFallbackData();
-                return;
             }
             
             // Process the data
-            processDashboardData(accidentData || [], alertData || []);
+            processDashboardData(accidentData, alertData);
             
             // Update last update time
+            const lastUpdateElement = document.getElementById('lastUpdate');
             if (lastUpdateElement) {
                 lastUpdateElement.textContent = 'Last update: ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
             }
             
+            // Add fade-in animation to updated elements
+            document.querySelectorAll('#accidentsToday, #pendingAlerts, #respondedCases, #totalDetections, #crashDetectionRate')
+                .forEach(el => {
+                    el.classList.add('fade-in');
+                    setTimeout(() => el.classList.remove('fade-in'), 300);
+                });
+            
         } catch (error) {
             console.error('Error loading dashboard data:', error);
             useFallbackData();
+        } finally {
+            isRefreshing = false;
+            if (refreshBtn && showLoading) {
+                refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> <span class="hidden sm:inline">Refresh</span>';
+                refreshBtn.disabled = false;
+            }
         }
+    }
+
+    function showLoadingStates() {
+        // Show loading animation in tables
+        const tbody = document.querySelector('#recentAlertsTable tbody');
+        const mobileView = document.getElementById('mobileAlertsView');
+        
+        if (tbody) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="5" class="py-8 text-center text-gray-500">
+                        <div class="animate-spin h-8 w-8 border-2 border-sky border-t-transparent rounded-full mx-auto mb-2"></div>
+                        Loading detection data...
+                    </td>
+                </tr>
+            `;
+        }
+        
+        if (mobileView) {
+            mobileView.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <div class="animate-spin h-8 w-8 border-2 border-sky border-t-transparent rounded-full mx-auto mb-2"></div>
+                    <p>Loading detection data...</p>
+                </div>
+            `;
+        }
+        
+        // Show skeleton loading for stats
+        ['accidentsToday', 'pendingAlerts', 'respondedCases', 'totalDetections', 'crashDetectionRate'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.textContent = '--';
+            }
+        });
     }
 
     function processDashboardData(accidentDetections, alerts) {
         const today = new Date().toDateString();
         
-        // Calculate statistics
+        // Calculate statistics with null checks
         const accidentsToday = accidentDetections.filter(d => {
             try {
                 const detectionDate = new Date(d.detection_time).toDateString();
@@ -99,16 +227,16 @@
         const respondedCases = accidentDetections.filter(d => d.status === 'Verified').length;
         const totalDetections = accidentDetections.length;
         
-        // Calculate detection rate
+        // Calculate detection rate with safe division
         const crashDetectionRate = totalDetections > 0 ? 
             Math.round((respondedCases / totalDetections) * 100) : 0;
 
-        // Update UI elements
-        updateElementText('accidentsToday', accidentsToday);
-        updateElementText('pendingAlerts', pendingAlerts);
-        updateElementText('respondedCases', respondedCases);
-        updateElementText('totalDetections', totalDetections);
-        updateElementText('crashDetectionRate', crashDetectionRate + '%');
+        // Update UI elements with animation
+        updateElementWithAnimation('accidentsToday', accidentsToday);
+        updateElementWithAnimation('pendingAlerts', pendingAlerts);
+        updateElementWithAnimation('respondedCases', respondedCases);
+        updateElementWithAnimation('totalDetections', totalDetections);
+        updateElementWithAnimation('crashDetectionRate', crashDetectionRate + '%');
         
         const detectionRateBar = document.getElementById('detectionRateBar');
         if (detectionRateBar) {
@@ -129,6 +257,20 @@
         };
     }
 
+    function updateElementWithAnimation(elementId, text) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            // Only animate if value changed
+            if (element.textContent !== text.toString()) {
+                element.classList.add('fade-in');
+                element.textContent = text;
+                setTimeout(() => element.classList.remove('fade-in'), 300);
+            } else {
+                element.textContent = text;
+            }
+        }
+    }
+
     function updateElementText(elementId, text) {
         const element = document.getElementById(elementId);
         if (element) element.textContent = text;
@@ -145,7 +287,7 @@
         
         if (recentDetections.length > 0) {
             // Desktop table view
-            tbody.innerHTML = recentDetections.map(detection => {
+            tbody.innerHTML = recentDetections.map((detection, index) => {
                 let detectionTime;
                 try {
                     detectionTime = new Date(detection.detection_time).toLocaleString();
@@ -154,13 +296,24 @@
                 }
                 
                 return `
-                    <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors">
-                        <td class="py-3 px-4">${detectionTime}</td>
-                        <td class="py-3 px-4">Camera ${detection.camera_id || 'Unknown'}</td>
+                    <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors fade-in" style="animation-delay: ${index * 50}ms">
+                        <td class="py-3 px-4">
+                            <div class="flex flex-col">
+                                <span class="font-medium">${detectionTime.split(',')[0]}</span>
+                                <span class="text-xs text-gray-400">${detectionTime.split(',')[1]?.trim() || ''}</span>
+                            </div>
+                        </td>
+                        <td class="py-3 px-4">
+                            <div class="flex items-center gap-2">
+                                <i class="bi bi-camera-video text-sky"></i>
+                                <span>Camera ${detection.camera_id || 'Unknown'}</span>
+                            </div>
+                        </td>
                         <td class="py-3 px-4">
                             <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
                                 detection.status === 'Pending' ? 'bg-alert/50 text-alert' : 'bg-greenlight/50 text-greenlight'
                             }">
+                                <i class="bi ${detection.status === 'Pending' ? 'bi-exclamation-triangle' : 'bi-check-circle'} mr-1"></i>
                                 ${detection.status === 'Pending' ? 'High' : 'Low'}
                             </span>
                         </td>
@@ -168,13 +321,23 @@
                             <i class="bi ${detection.status === 'Pending' ? 'bi-exclamation-triangle' : 'bi-check-circle'}"></i>
                             ${detection.status || 'Unknown'}
                         </td>
-                        <td class="py-3 px-4 text-right">${detection.confidence || 'N/A'}%</td>
+                        <td class="py-3 px-4 text-right">
+                            <div class="flex items-center justify-end gap-1">
+                                <div class="w-16 bg-gray-600 rounded-full h-1.5">
+                                    <div class="bg-${detection.confidence > 80 ? 'greenlight' : detection.confidence > 60 ? 'gold' : 'alert'} h-1.5 rounded-full" 
+                                         style="width: ${detection.confidence || 50}%"></div>
+                                </div>
+                                <span class="font-semibold ${detection.confidence > 80 ? 'text-greenlight' : detection.confidence > 60 ? 'text-gold' : 'text-alert'}">
+                                    ${detection.confidence || 'N/A'}%
+                                </span>
+                            </div>
+                        </td>
                     </tr>
                 `;
             }).join('');
 
             // Mobile card view
-            mobileView.innerHTML = recentDetections.map(detection => {
+            mobileView.innerHTML = recentDetections.map((detection, index) => {
                 let detectionTime;
                 try {
                     detectionTime = new Date(detection.detection_time).toLocaleString();
@@ -183,11 +346,14 @@
                 }
                 
                 return `
-                <div class="bg-[#112240] rounded-lg p-4 border border-gray-600 mb-3">
+                <div class="bg-[#112240] rounded-lg p-4 border border-gray-600 mb-3 fade-in" style="animation-delay: ${index * 50}ms">
                     <div class="flex justify-between items-start mb-2">
                         <div class="flex items-center gap-2">
                             <i class="bi ${detection.status === 'Pending' ? 'bi-exclamation-triangle text-alert' : 'bi-check-circle text-greenlight'}"></i>
-                            <span class="font-semibold text-white">Camera ${detection.camera_id || 'Unknown'}</span>
+                            <div>
+                                <div class="font-semibold text-white">Camera ${detection.camera_id || 'Unknown'}</div>
+                                <div class="text-xs text-gray-400">${detectionTime.split(',')[0]}</div>
+                            </div>
                         </div>
                         <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
                             detection.status === 'Pending' ? 'bg-alert/50 text-alert' : 'bg-greenlight/50 text-greenlight'
@@ -195,17 +361,29 @@
                             ${detection.status === 'Pending' ? 'High' : 'Low'}
                         </span>
                     </div>
-                    <div class="text-sm text-gray-400 mb-2">
-                        <i class="bi bi-clock mr-1"></i>${detectionTime}
-                    </div>
-                    <div class="text-sm mb-2 ${detection.status === 'Pending' ? 'text-alert' : 'text-greenlight'}">
-                        ${detection.status || 'Unknown'}
-                    </div>
-                    <div class="flex justify-between items-center text-sm">
-                        <span class="text-gray-400">Confidence</span>
-                        <span class="font-semibold ${detection.status === 'Pending' ? 'text-alert' : 'text-greenlight'}">
-                            ${detection.confidence || 'N/A'}%
-                        </span>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-400">Status</span>
+                            <span class="${detection.status === 'Pending' ? 'text-alert' : 'text-greenlight'} font-medium">
+                                ${detection.status || 'Unknown'}
+                            </span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-400">Time</span>
+                            <span>${detectionTime.split(',')[1]?.trim() || ''}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-400">Confidence</span>
+                            <div class="flex items-center gap-2">
+                                <div class="w-20 bg-gray-600 rounded-full h-1.5">
+                                    <div class="bg-${detection.confidence > 80 ? 'greenlight' : detection.confidence > 60 ? 'gold' : 'alert'} h-1.5 rounded-full" 
+                                         style="width: ${detection.confidence || 50}%"></div>
+                                </div>
+                                <span class="font-semibold ${detection.confidence > 80 ? 'text-greenlight' : detection.confidence > 60 ? 'text-gold' : 'text-alert'}">
+                                    ${detection.confidence || 'N/A'}%
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             `;
@@ -214,16 +392,18 @@
             // No data
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="5" class="py-8 text-center text-gray-500">
-                        <i class="bi bi-info-circle text-2xl mb-2"></i><br>
-                        No recent alerts found
+                    <td colspan="5" class="py-8 text-center text-gray-500 fade-in">
+                        <i class="bi bi-info-circle text-2xl mb-2"></i>
+                        <p class="text-lg">No recent alerts found</p>
+                        <p class="text-sm text-gray-400 mt-1">System is running normally</p>
                     </td>
                 </tr>
             `;
             mobileView.innerHTML = `
-                <div class="text-center py-8 text-gray-500">
+                <div class="text-center py-8 text-gray-500 fade-in">
                     <i class="bi bi-info-circle text-2xl mb-2"></i>
-                    <p>No recent alerts found</p>
+                    <p class="text-lg">No recent alerts found</p>
+                    <p class="text-sm text-gray-400 mt-1">System is running normally</p>
                 </div>
             `;
         }
@@ -243,21 +423,25 @@
                 const minutesAgo = Math.floor(timeDiff / (1000 * 60));
                 
                 if (minutesAgo < 5) {
-                    statusElement.className = 'bg-greenlight/20 text-greenlight text-sm px-3 py-1 rounded-full flex items-center gap-1';
+                    statusElement.className = 'bg-greenlight/20 text-greenlight text-sm px-3 py-1 rounded-full flex items-center gap-1 fade-in';
                     statusIcon.className = 'bi bi-circle-fill animate-pulse';
                     statusText.textContent = 'System Active';
-                } else {
-                    statusElement.className = 'bg-gold/20 text-gold text-sm px-3 py-1 rounded-full flex items-center gap-1';
+                } else if (minutesAgo < 30) {
+                    statusElement.className = 'bg-gold/20 text-gold text-sm px-3 py-1 rounded-full flex items-center gap-1 fade-in';
                     statusIcon.className = 'bi bi-exclamation-triangle';
                     statusText.textContent = 'Delayed Data';
+                } else {
+                    statusElement.className = 'bg-alert/20 text-alert text-sm px-3 py-1 rounded-full flex items-center gap-1 fade-in';
+                    statusIcon.className = 'bi bi-exclamation-circle';
+                    statusText.textContent = 'No Recent Data';
                 }
             } catch {
-                statusElement.className = 'bg-gold/20 text-gold text-sm px-3 py-1 rounded-full flex items-center gap-1';
+                statusElement.className = 'bg-gold/20 text-gold text-sm px-3 py-1 rounded-full flex items-center gap-1 fade-in';
                 statusIcon.className = 'bi bi-exclamation-triangle';
                 statusText.textContent = 'Invalid Date';
             }
         } else {
-            statusElement.className = 'bg-alert/20 text-alert text-sm px-3 py-1 rounded-full flex items-center gap-1';
+            statusElement.className = 'bg-alert/20 text-alert text-sm px-3 py-1 rounded-full flex items-center gap-1 fade-in';
             statusIcon.className = 'bi bi-exclamation-circle';
             statusText.textContent = 'No Data';
         }
@@ -308,10 +492,112 @@
         processDashboardData(fallbackDetections, fallbackAlerts);
     }
 
+    // Real-time updates with Supabase
+    function setupRealtimeUpdates() {
+        const supabaseClient = getSupabaseClient();
+        if (!supabaseClient) return;
+
+        // Subscribe to accident_detections changes
+        supabaseClient
+            .channel('accident-detections-changes')
+            .on(
+                'postgres_changes',
+                {
+                    event: '*', // INSERT, UPDATE, DELETE
+                    schema: 'public',
+                    table: 'accident_detections'
+                },
+                (payload) => {
+                    console.log('Real-time update:', payload);
+                    // Refresh data when changes occur
+                    loadDashboardData(false); // false = don't show loading animation
+                }
+            )
+            .subscribe();
+
+        // Subscribe to alerts changes
+        supabaseClient
+            .channel('alerts-changes')
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'alerts'
+                },
+                () => {
+                    loadDashboardData(false);
+                }
+            )
+            .subscribe();
+    }
+
     // Initialize when DOM is ready
     document.addEventListener('DOMContentLoaded', function() {
+        // Initial load
         loadDashboardData();
-        setInterval(loadDashboardData, 30000);
+        
+        // Set up auto-refresh every 30 seconds
+        refreshInterval = setInterval(() => loadDashboardData(false), 30000);
+        
+        // Set up real-time updates
+        setupRealtimeUpdates();
+        
+        // Add swipe to refresh on mobile
+        setupSwipeToRefresh();
+        
+        // Add network status monitoring
+        setupNetworkMonitoring();
+    });
+
+    // Handle page visibility changes
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            // Page became visible, refresh data
+            loadDashboardData();
+        }
+    });
+
+    // Setup swipe to refresh for mobile
+    function setupSwipeToRefresh() {
+        let touchStartY = 0;
+        let touchEndY = 0;
+        
+        document.addEventListener('touchstart', e => {
+            touchStartY = e.changedTouches[0].screenY;
+        }, { passive: true });
+        
+        document.addEventListener('touchend', e => {
+            touchEndY = e.changedTouches[0].screenY;
+            // Check if swipe down from top
+            if (touchStartY > touchEndY && window.scrollY === 0) {
+                loadDashboardData();
+            }
+        }, { passive: true });
+    }
+
+    // Network status monitoring
+    function setupNetworkMonitoring() {
+        window.addEventListener('online', () => {
+            console.log('Network connection restored');
+            loadDashboardData();
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('Network connection lost');
+            // Show offline indicator
+            const statusText = document.getElementById('statusText');
+            if (statusText) {
+                statusText.textContent = 'Offline';
+            }
+        });
+    }
+
+    // Clean up on page unload
+    window.addEventListener('beforeunload', function() {
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+        }
     });
 
     // Make function globally available
@@ -334,21 +620,21 @@
             <p class="text-base md:text-xl text-graylight mb-4 md:mb-6">AI-Powered Real-Time Vehicle Crash Detection System</p>
             <div class="flex flex-col sm:flex-row gap-3 md:gap-4 justify-center">
                 <a href="{% url 'cctv_monitoring' %}" class="bg-sky hover:bg-sky/80 text-white px-4 py-2 md:px-6 md:py-3 rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-sm md:text-base">
-                    <i class="bi bi-camera-video"></i> Monitor CCTV
+                    <i class="bi bi-camera-video"></i> <span class="hidden xs:inline">Monitor CCTV</span>
                 </a>
                 <a href="{% url 'live_monitoring' %}" class="bg-alert hover:bg-alert/80 text-white px-4 py-2 md:px-6 md:py-3 rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-sm md:text-base">
-                    <i class="bi bi-broadcast"></i> Live Detection
+                    <i class="bi bi-broadcast"></i> <span class="hidden xs:inline">Live Detection</span>
                 </a>
                 <a href="{% url 'reports' %}" class="bg-greenlight hover:bg-greenlight/80 text-white px-4 py-2 md:px-6 md:py-3 rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-sm md:text-base">
-                    <i class="bi bi-graph-up"></i> View Reports
+                    <i class="bi bi-graph-up"></i> <span class="hidden xs:inline">View Reports</span>
                 </a>
             </div>
         </div>
     </div>
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-6 md:mb-8">
-        <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-sky/20">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-6 md:mb-8 stats-grid">
+        <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-sky/20 stat-card">
             <div class="flex justify-between items-center">
                 <div>
                     <p class="text-xs md:text-sm text-gray-400">Accidents Today</p>
@@ -360,7 +646,7 @@
             </div>
         </div>
 
-        <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-alert/20">
+        <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-alert/20 stat-card">
             <div class="flex justify-between items-center">
                 <div>
                     <p class="text-xs md:text-sm text-gray-400">Pending Alerts</p>
@@ -372,7 +658,7 @@
             </div>
         </div>
 
-        <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-greenlight/20">
+        <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-greenlight/20 stat-card">
             <div class="flex justify-between items-center">
                 <div>
                     <p class="text-xs md:text-sm text-gray-400">Responded Cases</p>
@@ -384,7 +670,7 @@
             </div>
         </div>
 
-        <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-gold/20">
+        <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-gold/20 stat-card">
             <div class="flex justify-between items-center">
                 <div>
                     <p class="text-xs md:text-sm text-gray-400">Detection Accuracy</p>
@@ -449,23 +735,23 @@
                 </div>
             </div>
             <div class="p-4 md:p-6">
-                <div class="grid grid-cols-2 gap-3 md:gap-4">
-                    <a href="{% url 'cctv_monitoring' %}" class="bg-sky hover:bg-sky/80 text-white p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105">
+                <div class="grid grid-cols-2 gap-3 md:gap-4 quick-actions-grid">
+                    <a href="{% url 'cctv_monitoring' %}" class="bg-sky hover:bg-sky/80 text-white p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105 quick-action-btn">
                         <i class="bi bi-camera-video text-xl md:text-2xl mb-1 md:mb-2"></i>
                         <div class="font-semibold text-sm md:text-base">Live CCTV</div>
                         <div class="text-xs md:text-sm opacity-80">Monitor Feeds</div>
                     </a>
-                    <a href="{% url 'live_monitoring' %}" class="bg-alert hover:bg-alert/80 text-white p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105">
+                    <a href="{% url 'live_monitoring' %}" class="bg-alert hover:bg-alert/80 text-white p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105 quick-action-btn">
                         <i class="bi bi-broadcast text-xl md:text-2xl mb-1 md:mb-2"></i>
                         <div class="font-semibold text-sm md:text-base">Live Detection</div>
                         <div class="text-xs md:text-sm opacity-80">Test System</div>
                     </a>
-                    <a href="{% url 'reports' %}" class="bg-greenlight hover:bg-greenlight/80 text-white p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105">
+                    <a href="{% url 'reports' %}" class="bg-greenlight hover:bg-greenlight/80 text-white p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105 quick-action-btn">
                         <i class="bi bi-graph-up text-xl md:text-2xl mb-1 md:mb-2"></i>
                         <div class="font-semibold text-sm md:text-base">Reports</div>
                         <div class="text-xs md:text-sm opacity-80">View Analytics</div>
                     </a>
-                    <button onclick="loadDashboardData()" class="bg-gold hover:bg-gold/80 text-gray-900 p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105">
+                    <button onclick="loadDashboardData()" class="bg-gold hover:bg-gold/80 text-gray-900 p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105 quick-action-btn">
                         <i class="bi bi-arrow-clockwise text-xl md:text-2xl mb-1 md:mb-2"></i>
                         <div class="font-semibold text-sm md:text-base">Refresh</div>
                         <div class="text-xs md:text-sm opacity-80">Update Data</div>
@@ -482,9 +768,12 @@
                 <i class="bi bi-clock-history text-sky"></i>
                 <h3 class="text-lg md:text-xl font-bold">Recent Detection History</h3>
             </div>
-            <button onclick="loadDashboardData()" class="text-xs md:text-sm bg-sky hover:bg-sky/80 text-white px-2 md:px-3 py-1 md:py-1 rounded transition flex items-center gap-1">
-                <i class="bi bi-arrow-clockwise"></i> <span class="hidden sm:inline">Refresh</span>
-            </button>
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-400 hidden sm:inline">Auto-refresh every 30s</span>
+                <button onclick="loadDashboardData()" class="text-xs md:text-sm bg-sky hover:bg-sky/80 text-white px-2 md:px-3 py-1 md:py-1 rounded transition flex items-center gap-1">
+                    <i class="bi bi-arrow-clockwise"></i> <span class="hidden sm:inline">Refresh</span>
+                </button>
+            </div>
         </div>
         
         <!-- Desktop Table View -->
