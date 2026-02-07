@@ -691,3 +691,9 @@ def get_camera_status(request, camera_id):
         return HttpResponse(f"Crash:{crash_status}|AI:{ai_status}|Camera:{camera_id}")
     
     return HttpResponse("Crash:False|AI:False|Camera:inactive")
+
+def reports(request):
+    return render(request, 'dashboard/reports.html', {
+        'SUPABASE_URL': settings.SUPABASE_URL,
+        'SUPABASE_ANON_KEY': settings.SUPABASE_ANON_KEY,
+    })

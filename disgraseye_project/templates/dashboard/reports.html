@@ -1,31 +1,83 @@
 {% extends 'dashboard/base.html' %}
 
-{% block title %}Reports | DisgrasEye{% endblock %}
+{% block title %}Crash Reports | DisgrasEye{% endblock %}
 
 {% block extra_scripts %}
 <script>
 let charts = {};
 let reportData = {};
+let currentDateFilter = 'today'; // today, week, month, custom
+let currentFrequencyFilter = 'daily'; // daily, weekly, monthly
 
-// Get Supabase client from global scope
+// Function to get Supabase client from global scope
 function getSupabaseClient() {
     if (window._supabase) {
         return window._supabase;
-    } else if (typeof getSupabaseClient === 'function') {
-        return getSupabaseClient();
     }
     
-    // Fallback: use Django context variables
+    // Use your Supabase credentials
     const supabaseUrl = "{{ SUPABASE_URL|default:'https://ivigoibymrcvaftgayqv.supabase.co' }}";
     const supabaseAnonKey = "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aWdvaWJ5bXJjdmFmdGdheXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MDI2MDgsImV4cCI6MjA3OTQ3ODYwOH0.c3MoFVyNGXwZ3zqtgWz62Du0WfA7pranyAXDwRpy5sw' }}";
     
     return supabase.createClient(supabaseUrl, supabaseAnonKey);
 }
 
+// Initialize everything when page loads
 document.addEventListener('DOMContentLoaded', function() {
+    initializeDateFilter();
+    initializeFrequencyFilter();
     loadReportData();
 });
 
+// Set up date filter button click handlers
+function initializeDateFilter() {
+    document.querySelectorAll('.date-filter-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            currentDateFilter = this.dataset.filter;
+            
+            // Update button active states
+            document.querySelectorAll('.date-filter-btn').forEach(b => {
+                b.classList.remove('bg-sky', 'text-white');
+                b.classList.add('bg-gray-700', 'text-gray-300');
+            });
+            this.classList.remove('bg-gray-700', 'text-gray-300');
+            this.classList.add('bg-sky', 'text-white');
+            
+            // Reload data with new filter
+            loadReportData();
+        });
+    });
+    
+    // Handle custom date picker
+    document.getElementById('customDatePicker')?.addEventListener('change', function() {
+        if (this.value) {
+            currentDateFilter = 'custom';
+            loadReportData();
+        }
+    });
+}
+
+// Set up frequency filter button click handlers
+function initializeFrequencyFilter() {
+    document.querySelectorAll('.frequency-filter-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            currentFrequencyFilter = this.dataset.frequency;
+            
+            // Update button active states
+            document.querySelectorAll('.frequency-filter-btn').forEach(b => {
+                b.classList.remove('bg-sky', 'text-white');
+                b.classList.add('bg-gray-700', 'text-gray-300');
+            });
+            this.classList.remove('bg-gray-700', 'text-gray-300');
+            this.classList.add('bg-sky', 'text-white');
+            
+            // Reload data with new frequency filter
+            loadReportData();
+        });
+    });
+}
+
+// Main function to load crash report data from Supabase
 async function loadReportData() {
     try {
         const supabase = getSupabaseClient();
@@ -35,31 +87,64 @@ async function loadReportData() {
             return;
         }
 
-        // Load accident data
-        const { data: accidentData, error: accidentError } = await supabase
-            .from('accident_detections')
-            .select('*')
+        // Build date range filter based on current selection
+        const dateFilter = buildDateFilter();
+        
+        console.log('Loading crash data from:', dateFilter.start, 'to', dateFilter.end);
+        
+        // Load crash data from accident_detections table - THIS IS WHERE WE GET CRASH DATA
+        const { data: crashData, error: crashError } = await supabase
+            .from('accident_detections')  // Your crash detection table
+            .select(`
+                accident_id,
+                detection_time,
+                camera_id,
+                status,
+                confidence,
+                description
+            `)
+            .gte('detection_time', dateFilter.start)  // Filter by crash detection time
+            .lte('detection_time', dateFilter.end)
             .order('detection_time', { ascending: false });
 
-        if (accidentError) {
-            console.error('Error loading accident data:', accidentError);
+        if (crashError) {
+            console.error('Error loading crash data:', crashError);
+            
+            // Try alerts table as fallback if accident_detections doesn't exist
+            const { data: alertsData } = await supabase
+                .from('alerts')
+                .select(`
+                    alert_id,
+                    alert_time,
+                    detection_id,
+                    accident_detections: detection_id (
+                        detection_time,
+                        camera_id,
+                        status
+                    )
+                `)
+                .gte('alert_time', dateFilter.start)
+                .lte('alert_time', dateFilter.end)
+                .order('alert_time', { ascending: false });
+            
+            if (alertsData && alertsData.length > 0) {
+                console.log('Using alerts data as crash proxy');
+                processCrashDataFromAlerts(alertsData || []);
+                initializeCharts();
+                updateRecentCrashes(alertsData || []);
+                return;
+            }
+            
             initializeChartsWithDemoData();
             return;
         }
 
-        // Load alerts data
-        const { data: alertData, error: alertError } = await supabase
-            .from('alerts')
-            .select('*');
+        console.log(`Loaded ${crashData.length} crash detections`);
 
-        if (alertError) {
-            console.error('Error loading alert data:', alertError);
-        }
-
-        // Process data for charts
-        processReportData(accidentData || [], alertData || []);
+        // Process the crash data for charts and display
+        processReportData(crashData || []);
         initializeCharts();
-        updateQuickStats(accidentData || [], alertData || []);
+        updateRecentCrashes(crashData || []);
 
     } catch (error) {
         console.error('Error loading report data:', error);
@@ -67,204 +152,414 @@ async function loadReportData() {
     }
 }
 
-function processReportData(accidentDetections, alerts) {
-    // Calculate monthly data
-    const monthlyCounts = Array(12).fill(0);
-    const crashTypeCounts = {
-        'Rear-end': 0,
-        'Side-impact': 0, 
-        'Head-on': 0,
-        'Rollover': 0,
-        'Other': 0
-    };
+// Process alerts data as proxy for crash data
+function processCrashDataFromAlerts(alerts) {
+    const crashData = [];
     
-    accidentDetections.forEach(detection => {
-        try {
-            const date = new Date(detection.detection_time);
-            const month = date.getMonth();
-            monthlyCounts[month]++;
-            
-            // Simple crash type detection based on description/confidence
-            if (detection.description) {
-                const desc = detection.description.toLowerCase();
-                if (desc.includes('rear') || desc.includes('back')) {
-                    crashTypeCounts['Rear-end']++;
-                } else if (desc.includes('side') || desc.includes('lateral')) {
-                    crashTypeCounts['Side-impact']++;
-                } else if (desc.includes('head') || desc.includes('front')) {
-                    crashTypeCounts['Head-on']++;
-                } else if (desc.includes('roll') || desc.includes('overturn')) {
-                    crashTypeCounts['Rollover']++;
-                } else {
-                    crashTypeCounts['Other']++;
-                }
-            }
-        } catch (e) {
-            console.error('Error processing detection:', e);
-        }
-    });
-
-    // Calculate response times from alerts
-    const responseTimes = {};
     alerts.forEach(alert => {
-        if (alert.response_time && alert.alert_time) {
-            try {
-                const alertTime = new Date(alert.alert_time);
-                const responseTime = new Date(alert.response_time);
-                const day = alertTime.toLocaleDateString('en-US', { weekday: 'short' });
-                const minutes = (responseTime - alertTime) / (1000 * 60);
-                
-                if (!responseTimes[day]) {
-                    responseTimes[day] = { total: 0, count: 0 };
-                }
-                responseTimes[day].total += minutes;
-                responseTimes[day].count++;
-            } catch (e) {
-                console.error('Error processing response time:', e);
+        const accident = alert.accident_detections || {};
+        if (accident && accident.detection_time) {
+            crashData.push({
+                accident_id: alert.alert_id, // Use alert ID as proxy
+                detection_time: accident.detection_time || alert.alert_time,
+                camera_id: accident.camera_id,
+                status: accident.status || 'Unknown',
+                confidence: null,
+                description: null
+            });
+        }
+    });
+    
+    processReportData(crashData);
+}
+
+// Build date range filter based on current selection
+function buildDateFilter() {
+    const now = new Date();
+    let startDate, endDate;
+    
+    switch(currentDateFilter) {
+        case 'today':
+            startDate = new Date(now.setHours(0, 0, 0, 0));
+            endDate = new Date(now.setHours(23, 59, 59, 999));
+            break;
+        case 'week':
+            startDate = new Date(now);
+            startDate.setDate(now.getDate() - now.getDay());
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date(startDate);
+            endDate.setDate(startDate.getDate() + 6);
+            endDate.setHours(23, 59, 59, 999);
+            break;
+        case 'month':
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+            break;
+        case 'custom':
+            const customDate = document.getElementById('customDatePicker')?.value;
+            if (customDate) {
+                startDate = new Date(customDate);
+                startDate.setHours(0, 0, 0, 0);
+                endDate = new Date(customDate);
+                endDate.setHours(23, 59, 59, 999);
+            } else {
+                startDate = new Date(now.setHours(0, 0, 0, 0));
+                endDate = new Date(now.setHours(23, 59, 59, 999));
             }
-        }
-    });
-
-    // Calculate camera performance
-    const cameraStats = {};
-    accidentDetections.forEach(detection => {
-        const cameraId = detection.camera_id || 'unknown';
-        if (!cameraStats[cameraId]) {
-            cameraStats[cameraId] = { detections: 0, totalConfidence: 0 };
-        }
-        cameraStats[cameraId].detections++;
-        cameraStats[cameraId].totalConfidence += (detection.confidence || 50);
-    });
-
-    reportData = {
-        monthlyData: monthlyCounts,
-        crashTypeData: Object.values(crashTypeCounts),
-        responseTimeData: calculateAvgResponseTimes(responseTimes),
-        cameraPerformance: calculateCameraPerformance(cameraStats),
-        totalIncidents: accidentDetections.length,
-        pendingAlerts: alerts.filter(a => a.response_status === 'Unacknowledged').length,
-        detectionAccuracy: calculateDetectionAccuracy(accidentDetections),
-        avgResponseTime: calculateOverallAvgResponseTime(alerts)
+            break;
+        default:
+            startDate = new Date(now.setHours(0, 0, 0, 0));
+            endDate = new Date(now.setHours(23, 59, 59, 999));
+    }
+    
+    return {
+        start: startDate.toISOString(),
+        end: endDate.toISOString()
     };
 }
 
-function calculateAvgResponseTimes(responseTimes) {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return days.map(day => {
-        if (responseTimes[day] && responseTimes[day].count > 0) {
-            return parseFloat((responseTimes[day].total / responseTimes[day].count).toFixed(1));
-        }
-        return Math.random() * 1.5 + 1.5; // Demo data if no real data
-    });
-}
-
-function calculateCameraPerformance(cameraStats) {
-    // Calculate average performance metrics
-    const totalCameras = Object.keys(cameraStats).length;
-    if (totalCameras === 0) return [85, 92, 78, 88, 82]; // Demo data
+// Process crash data into chart-friendly format
+function processReportData(crashes) {
+    console.log('Processing', crashes.length, 'crashes for reports');
     
-    let detectionRate = 0;
-    let avgConfidence = 0;
+    // Object to track crash locations (by camera)
+    const crashLocations = {};
     
-    Object.values(cameraStats).forEach(stats => {
-        detectionRate += stats.detections;
-        avgConfidence += stats.totalConfidence / stats.detections;
-    });
+    // Object to track crash status distribution
+    const crashStatusCounts = {
+        'Pending': 0,
+        'Verified': 0,
+        'False Positive': 0,
+        'other': 0
+    };
     
-    detectionRate = (detectionRate / totalCameras) * 10; // Normalize
-    avgConfidence = avgConfidence / totalCameras;
+    // Object to track crash confidence distribution
+    const confidenceLevels = {
+        'High (80-100%)': 0,
+        'Medium (50-79%)': 0,
+        'Low (0-49%)': 0,
+        'Unknown': 0
+    };
     
-    return [
-        Math.min(95, detectionRate), // Detection Rate
-        92, // Uptime (demo)
-        Math.min(90, avgConfidence), // Image Quality
-        88, // Network Stability (demo)
-        Math.min(90, detectionRate * 0.9) // Alert Accuracy
-    ];
-}
-
-function calculateDetectionAccuracy(detections) {
-    if (detections.length === 0) return 0;
-    const verified = detections.filter(d => d.status === 'Verified').length;
-    return Math.round((verified / detections.length) * 100);
-}
-
-function calculateOverallAvgResponseTime(alerts) {
-    const validAlerts = alerts.filter(a => a.response_time && a.alert_time);
-    if (validAlerts.length === 0) return '2.1';
+    // Object to track crash frequency based on current filter
+    const frequencyData = {};
     
-    let totalMinutes = 0;
-    validAlerts.forEach(alert => {
+    crashes.forEach(crash => {
         try {
-            const alertTime = new Date(alert.alert_time);
-            const responseTime = new Date(alert.response_time);
-            totalMinutes += (responseTime - alertTime) / (1000 * 60);
+            // Get timestamp from crash detection
+            const date = crash.detection_time ? new Date(crash.detection_time) : new Date();
+            
+            // Track crash locations by camera ID
+            let cameraLocation = 'Unknown Camera';
+            if (crash.camera_id) {
+                cameraLocation = `Camera ${crash.camera_id}`;
+            }
+            crashLocations[cameraLocation] = (crashLocations[cameraLocation] || 0) + 1;
+            
+            // Track crash statuses
+            const status = crash.status || 'other';
+            if (crashStatusCounts.hasOwnProperty(status)) {
+                crashStatusCounts[status]++;
+            } else {
+                crashStatusCounts['other']++;
+            }
+            
+            // Track confidence levels
+            if (crash.confidence !== null && crash.confidence !== undefined) {
+                if (crash.confidence >= 80) {
+                    confidenceLevels['High (80-100%)']++;
+                } else if (crash.confidence >= 50) {
+                    confidenceLevels['Medium (50-79%)']++;
+                } else {
+                    confidenceLevels['Low (0-49%)']++;
+                }
+            } else {
+                confidenceLevels['Unknown']++;
+            }
+            
+            // Calculate frequency key based on current filter
+            let frequencyKey;
+            switch(currentFrequencyFilter) {
+                case 'daily':
+                    frequencyKey = date.toLocaleDateString('en-US', { weekday: 'short' });
+                    break;
+                case 'weekly':
+                    const weekNumber = getWeekNumber(date);
+                    frequencyKey = `Week ${weekNumber}`;
+                    break;
+                case 'monthly':
+                    frequencyKey = date.toLocaleDateString('en-US', { month: 'short' });
+                    break;
+            }
+            
+            frequencyData[frequencyKey] = (frequencyData[frequencyKey] || 0) + 1;
+            
         } catch (e) {
-            console.error('Error calculating response time:', e);
+            console.error('Error processing crash for reports:', e, crash);
         }
     });
+
+    // Generate frequency labels in correct order
+    let frequencyLabels = [];
+    switch(currentFrequencyFilter) {
+        case 'daily':
+            frequencyLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            break;
+        case 'weekly':
+            const now = new Date();
+            const weeksInMonth = getWeeksInMonth(now.getFullYear(), now.getMonth());
+            frequencyLabels = Array.from({length: weeksInMonth}, (_, i) => `Week ${i + 1}`);
+            break;
+        case 'monthly':
+            frequencyLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            break;
+    }
     
-    return (totalMinutes / validAlerts.length).toFixed(1);
+    // Create frequency data array aligned with labels
+    const frequencyDataArray = frequencyLabels.map(label => frequencyData[label] || 0);
+
+    // Sort crash locations by frequency (highest first)
+    const sortedLocations = Object.entries(crashLocations)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8); // Get top 8 locations
+
+    // Store processed data for chart generation
+    reportData = {
+        totalCrashes: crashes.length,
+        crashLocations: sortedLocations,
+        crashStatusData: Object.values(crashStatusCounts),
+        confidenceData: Object.values(confidenceLevels),
+        frequencyData: frequencyDataArray,
+        frequencyLabels: frequencyLabels,
+        dateFilter: currentDateFilter,
+        frequencyFilter: currentFrequencyFilter,
+        crashes: crashes  // Store raw crashes for recent list
+    };
 }
 
-function updateQuickStats(detections, alerts) {
-    // Update quick stats in the UI
-    document.querySelectorAll('.quick-stat').forEach(stat => {
-        const type = stat.dataset.type;
-        switch(type) {
-            case 'total-incidents':
-                stat.textContent = detections.length;
-                break;
-            case 'avg-response':
-                stat.textContent = reportData.avgResponseTime + 'min';
-                break;
-            case 'detection-accuracy':
-                stat.textContent = reportData.detectionAccuracy + '%';
-                break;
-            case 'pending-alerts':
-                const pending = alerts.filter(a => a.response_status === 'Unacknowledged').length;
-                stat.textContent = pending;
-                break;
+// Helper function to get week number of a date
+function getWeekNumber(date) {
+    const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+    const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+    return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+}
+
+// Helper function to get number of weeks in a month
+function getWeeksInMonth(year, month) {
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const firstWeekday = firstDay.getDay();
+    return Math.ceil((daysInMonth + firstWeekday) / 7);
+}
+
+// Update the recent crashes list in the UI
+function updateRecentCrashes(crashes) {
+    const recentCrashesEl = document.querySelector('.recent-crashes-list');
+    if (!recentCrashesEl) return;
+    
+    if (crashes.length === 0) {
+        recentCrashesEl.innerHTML = `
+            <div class="text-center py-8 text-gray-500">
+                <i class="bi bi-car-front text-3xl mb-2"></i>
+                <p>No crashes detected for selected period</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Display top 5 most recent crashes
+    const recentCrashes = crashes.slice(0, 5);
+    
+    recentCrashesEl.innerHTML = recentCrashes.map(crash => {
+        // Get crash time
+        const crashTime = crash.detection_time ? new Date(crash.detection_time) : new Date();
+        
+        const timeStr = crashTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const dateStr = crashTime.toLocaleDateString();
+        
+        // Get camera location
+        let location = 'Unknown Location';
+        if (crash.camera_id) {
+            location = `Camera ${crash.camera_id}`;
+        }
+        
+        // Determine status color
+        let statusColor = 'text-gray-400';
+        if (crash.status === 'Pending') statusColor = 'text-alert';
+        else if (crash.status === 'Verified') statusColor = 'text-greenlight';
+        else if (crash.status === 'False Positive') statusColor = 'text-gold';
+        
+        // Determine confidence indicator
+        let confidenceBadge = '';
+        if (crash.confidence !== null && crash.confidence !== undefined) {
+            let confidenceColor = 'bg-gray-600';
+            if (crash.confidence >= 80) confidenceColor = 'bg-greenlight';
+            else if (crash.confidence >= 50) confidenceColor = 'bg-gold';
+            else confidenceColor = 'bg-alert';
+            
+            confidenceBadge = `<span class="px-2 py-1 text-xs rounded ${confidenceColor} text-white ml-2">${Math.round(crash.confidence)}%</span>`;
+        }
+        
+        return `
+            <div class="bg-darkbg/50 p-3 rounded-lg border border-gray-700 hover:border-sky/50 transition-colors">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <div class="font-medium text-white">${timeStr}</div>
+                        <div class="text-xs text-gray-400">${dateStr}</div>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="px-2 py-1 text-xs rounded ${statusColor} bg-opacity-20 ${statusColor.replace('text-', 'bg-')}">
+                            ${crash.status || 'Unknown'}
+                        </span>
+                        ${confidenceBadge}
+                    </div>
+                </div>
+                <div class="text-sm text-gray-300 mb-1 truncate" title="${location}">📍 ${location}</div>
+                ${crash.description ? `<div class="text-xs text-gray-400 mt-1 italic">"${crash.description}"</div>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+// Initialize all Chart.js charts
+function initializeCharts() {
+    // Destroy existing charts
+    Object.values(charts).forEach(chart => {
+        if (chart && typeof chart.destroy === 'function') {
+            chart.destroy();
         }
     });
-}
+    charts = {};
 
-function initializeCharts() {
-    // Monthly Crash Trends Chart
-    const monthlyCtx = document.getElementById('monthlyCrashChart');
-    if (monthlyCtx && reportData.monthlyData) {
-        charts.monthlyCrashChart = new Chart(monthlyCtx, {
-            type: 'line',
+    // 1. CRASH FREQUENCY CHART (Daily/Weekly/Monthly)
+    const frequencyCtx = document.getElementById('crashFrequencyChart');
+    if (frequencyCtx && reportData.frequencyData && reportData.frequencyLabels) {
+        charts.crashFrequencyChart = new Chart(frequencyCtx, {
+            type: 'bar',
             data: {
-                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                labels: reportData.frequencyLabels,
                 datasets: [{
-                    label: 'Crashes Detected',
-                    data: reportData.monthlyData,
-                    borderColor: '#38BDF8',
-                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-                    tension: 0.4,
-                    fill: true
+                    label: 'Number of Crashes',
+                    data: reportData.frequencyData,
+                    backgroundColor: '#38BDF8',
+                    borderColor: '#0EA5E9',
+                    borderWidth: 1
                 }]
             },
-            options: getChartOptions()
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: getFrequencyChartTitle(),
+                        color: '#CBD5E1',
+                        font: { size: 16, weight: 'bold' }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { 
+                            color: 'rgba(203, 213, 225, 0.1)',
+                            drawBorder: false
+                        },
+                        ticks: { 
+                            color: '#CBD5E1',
+                            precision: 0
+                        }
+                    },
+                    x: {
+                        grid: { 
+                            color: 'rgba(203, 213, 225, 0.1)',
+                            drawBorder: false
+                        },
+                        ticks: { 
+                            color: '#CBD5E1'
+                        }
+                    }
+                }
+            }
         });
     }
 
-    // Crash Type Distribution Chart
-    const crashTypeCtx = document.getElementById('crashTypeChart');
-    if (crashTypeCtx && reportData.crashTypeData) {
-        charts.crashTypeChart = new Chart(crashTypeCtx, {
+    // 2. CRASH LOCATIONS CHART (Top cameras)
+    const locationsCtx = document.getElementById('crashLocationsChart');
+    if (locationsCtx && reportData.crashLocations) {
+        const locationLabels = reportData.crashLocations.map(loc => loc[0]);
+        const locationData = reportData.crashLocations.map(loc => loc[1]);
+
+        charts.crashLocationsChart = new Chart(locationsCtx, {
+            type: 'horizontalBar',
+            data: {
+                labels: locationLabels,
+                datasets: [{
+                    label: 'Number of Crashes',
+                    data: locationData,
+                    backgroundColor: '#EF4444', // Red for crashes
+                    borderColor: '#DC2626',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    title: {
+                        display: true,
+                        text: 'Top Crash Locations (by Camera)',
+                        color: '#CBD5E1',
+                        font: { size: 16, weight: 'bold' }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        grid: { 
+                            color: 'rgba(203, 213, 225, 0.1)',
+                            drawBorder: false
+                        },
+                        ticks: { 
+                            color: '#CBD5E1',
+                            precision: 0
+                        }
+                    },
+                    y: {
+                        grid: { 
+                            color: 'rgba(203, 213, 225, 0.1)',
+                            drawBorder: false
+                        },
+                        ticks: { 
+                            color: '#CBD5E1'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 3. CRASH STATUS DISTRIBUTION CHART
+    const crashStatusCtx = document.getElementById('crashStatusChart');
+    if (crashStatusCtx && reportData.crashStatusData) {
+        charts.crashStatusChart = new Chart(crashStatusCtx, {
             type: 'doughnut',
             data: {
-                labels: ['Rear-end', 'Side-impact', 'Head-on', 'Rollover', 'Other'],
+                labels: ['Pending', 'Verified', 'False Positive', 'Other'],
                 datasets: [{
-                    data: reportData.crashTypeData,
+                    data: reportData.crashStatusData,
                     backgroundColor: [
-                        '#EF4444',
-                        '#F59E0B',
-                        '#10B981',
-                        '#3B82F6',
-                        '#8B5CF6'
+                        '#F59E0B', // Pending - Amber
+                        '#10B981', // Verified - Green
+                        '#6B7280', // False Positive - Gray
+                        '#8B5CF6'  // Other - Violet
                     ]
                 }]
             },
@@ -273,110 +568,87 @@ function initializeCharts() {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        position: 'bottom',
-                        labels: { color: '#CBD5E1' }
-                    }
-                }
-            }
-        });
-    }
-
-    // Response Time Analysis Chart
-    const responseTimeCtx = document.getElementById('responseTimeChart');
-    if (responseTimeCtx && reportData.responseTimeData) {
-        charts.responseTimeChart = new Chart(responseTimeCtx, {
-            type: 'bar',
-            data: {
-                labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-                datasets: [{
-                    label: 'Avg Response Time (min)',
-                    data: reportData.responseTimeData,
-                    backgroundColor: '#10B981'
-                }]
-            },
-            options: getChartOptions()
-        });
-    }
-
-    // Camera Performance Chart
-    const cameraPerformanceCtx = document.getElementById('cameraPerformanceChart');
-    if (cameraPerformanceCtx && reportData.cameraPerformance) {
-        charts.cameraPerformanceChart = new Chart(cameraPerformanceCtx, {
-            type: 'radar',
-            data: {
-                labels: ['Detection Rate', 'Uptime', 'Image Quality', 'Network Stability', 'Alert Accuracy'],
-                datasets: [{
-                    label: 'Camera Performance',
-                    data: reportData.cameraPerformance,
-                    backgroundColor: 'rgba(56, 189, 248, 0.2)',
-                    borderColor: '#38BDF8',
-                    pointBackgroundColor: '#38BDF8'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    r: {
-                        angleLines: { color: 'rgba(203, 213, 225, 0.1)' },
-                        grid: { color: 'rgba(203, 213, 225, 0.1)' },
-                        pointLabels: { color: '#CBD5E1' },
-                        ticks: { 
+                        position: 'right',
+                        labels: { 
                             color: '#CBD5E1',
-                            backdropColor: 'transparent'
+                            font: { size: 12 }
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Crash Detection Status',
+                        color: '#CBD5E1',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = Math.round((value / total) * 100);
+                                return `${label}: ${value} (${percentage}%)`;
+                            }
                         }
                     }
-                },
-                plugins: {
-                    legend: {
-                        labels: { color: '#CBD5E1' }
-                    }
                 }
             }
         });
     }
 }
 
-function getChartOptions() {
-    return {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: {
-                labels: { color: '#CBD5E1' }
-            }
-        },
-        scales: {
-            y: {
-                beginAtZero: true,
-                grid: { color: 'rgba(203, 213, 225, 0.1)' },
-                ticks: { color: '#CBD5E1' }
-            },
-            x: {
-                grid: { color: 'rgba(203, 213, 225, 0.1)' },
-                ticks: { color: '#CBD5E1' }
-            }
-        }
-    };
+// Get appropriate chart title based on frequency filter
+function getFrequencyChartTitle() {
+    switch(currentFrequencyFilter) {
+        case 'daily':
+            return 'Daily Crash Frequency';
+        case 'weekly':
+            return 'Weekly Crash Frequency';
+        case 'monthly':
+            return 'Monthly Crash Frequency';
+        default:
+            return 'Crash Frequency';
+    }
 }
 
+// Initialize with demo data if database is unavailable
 function initializeChartsWithDemoData() {
+    // Get appropriate labels based on filter
+    let frequencyLabels = [];
+    switch(currentFrequencyFilter) {
+        case 'daily':
+            frequencyLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            break;
+        case 'weekly':
+            frequencyLabels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
+            break;
+        case 'monthly':
+            frequencyLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            break;
+    }
+    
+    // Create empty data arrays
+    const emptyData = frequencyLabels.map(() => 0);
+    
     reportData = {
-        monthlyData: [12, 19, 15, 25, 22, 30, 28, 26, 24, 20, 18, 22],
-        crashTypeData: [45, 25, 15, 10, 5],
-        responseTimeData: [2.3, 1.8, 2.5, 1.9, 2.1, 2.8, 2.4],
-        cameraPerformance: [85, 92, 78, 88, 82],
-        totalIncidents: 156,
-        pendingAlerts: 12,
-        detectionAccuracy: 94,
-        avgResponseTime: '2.1'
+        totalCrashes: 0,
+        crashLocations: [],
+        crashStatusData: [0, 0, 0, 0], // All zeros
+        confidenceData: [0, 0, 0, 0], // All zeros
+        frequencyData: emptyData,
+        frequencyLabels: frequencyLabels,
+        dateFilter: currentDateFilter,
+        frequencyFilter: currentFrequencyFilter,
+        crashes: []
     };
     
+    // Initialize empty charts
     initializeCharts();
-    updateQuickStats([], []);
+    updateRecentCrashes([]);
 }
 
-async function exportReport(type) {
+// Generate and download a crash report
+async function exportReport() {
     try {
         const supabase = getSupabaseClient();
         if (!supabase) {
@@ -384,74 +656,100 @@ async function exportReport(type) {
             return;
         }
 
-        let startDate, endDate;
-        const now = new Date();
+        const dateFilter = buildDateFilter();
         
-        switch(type) {
-            case 'daily':
-                startDate = new Date(now.setHours(0, 0, 0, 0));
-                endDate = new Date(now.setHours(23, 59, 59, 999));
-                break;
-            case 'weekly':
-                startDate = new Date(now.setDate(now.getDate() - 7));
-                endDate = new Date();
-                break;
-            default:
-                startDate = new Date(now.setMonth(now.getMonth() - 1));
-                endDate = new Date();
-        }
-
-        // Fetch data for the report
-        const { data: reportData, error } = await supabase
+        // Fetch crash data for the report
+        const { data: crashData, error } = await supabase
             .from('accident_detections')
             .select('*')
-            .gte('detection_time', startDate.toISOString())
-            .lte('detection_time', endDate.toISOString());
+            .gte('detection_time', dateFilter.start)
+            .lte('detection_time', dateFilter.end)
+            .order('detection_time', { ascending: false });
 
         if (error) {
             throw error;
         }
 
-        // Generate PDF content
-        const reportContent = generateReportContent(type, reportData, startDate, endDate);
+        // Generate report text content
+        const reportContent = generateReportContent(crashData, dateFilter);
         
-        // Create and download PDF
-        downloadPDF(reportContent, `DisgrasEye_${type}_report_${new Date().toISOString().split('T')[0]}.pdf`);
+        // Trigger download
+        downloadPDF(reportContent, `DisgrasEye_Crash_Report_${new Date().toISOString().split('T')[0]}.pdf`);
         
-        alert(`${type.charAt(0).toUpperCase() + type.slice(1)} report generated successfully!`);
+        alert('Crash report generated successfully!');
 
     } catch (error) {
         console.error('Error generating report:', error);
-        alert(`Error generating ${type} report: ${error.message}`);
+        alert(`Error generating report: ${error.message}`);
     }
 }
 
-function generateReportContent(type, data, startDate, endDate) {
-    // This would be replaced with actual PDF generation logic
-    // For now, we'll just create a simple text representation
+// Format report content as text
+function generateReportContent(data, dateFilter) {
+    const startDate = new Date(dateFilter.start);
+    const endDate = new Date(dateFilter.end);
+    
+    // Calculate summaries
+    const locationSummary = {};
+    const statusSummary = {};
+    
+    data.forEach(crash => {
+        // Count crashes by location
+        let location = 'Unknown Location';
+        if (crash.camera_id) {
+            location = `Camera ${crash.camera_id}`;
+        }
+        locationSummary[location] = (locationSummary[location] || 0) + 1;
+        
+        // Count crashes by status
+        const status = crash.status || 'Unknown';
+        statusSummary[status] = (statusSummary[status] || 0) + 1;
+    });
+
+    // Build report text
     return `
         DisgrasEye Crash Detection Report
-        ==================================
-        Report Type: ${type.toUpperCase()}
-        Period: ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}
+        =================================
+        Date Range: ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}
+        Generated: ${new Date().toLocaleString()}
+        Frequency View: ${currentFrequencyFilter.charAt(0).toUpperCase() + currentFrequencyFilter.slice(1)}
         
-        Summary:
-        - Total Incidents: ${data.length}
-        - Detection Period: ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}
-        - Generated: ${new Date().toLocaleString()}
+        SUMMARY:
+        - Total Crashes Detected: ${data.length}
+        - Date Filter: ${currentDateFilter.charAt(0).toUpperCase() + currentDateFilter.slice(1)}
         
-        Incident Details:
-        ${data.map((incident, i) => `
-        ${i+1}. ${new Date(incident.detection_time).toLocaleString()}
-           Camera: ${incident.camera_id || 'Unknown'}
-           Status: ${incident.status || 'Unknown'}
-           Confidence: ${incident.confidence || 'N/A'}%
-        `).join('\n')}
+        CRASH LOCATIONS (Top 10):
+        ${Object.entries(locationSummary)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([location, count], i) => 
+                `  ${i+1}. ${location}: ${count} crashes`
+            ).join('\n')}
+        
+        CRASH STATUS DISTRIBUTION:
+        ${Object.entries(statusSummary)
+            .map(([status, count]) => 
+                `  ${status}: ${count} crashes`
+            ).join('\n')}
+        
+        DETAILED CRASH DETECTIONS (First 20):
+        ${data.slice(0, 20).map((crash, i) => {
+            const crashTime = crash.detection_time ? new Date(crash.detection_time).toLocaleString() : 'Unknown';
+            
+            return `
+        ${i+1}. Crash ID: ${crash.accident_id || 'N/A'}
+           Detection Time: ${crashTime}
+           Camera: ${crash.camera_id || 'Unknown'}
+           Status: ${crash.status || 'Unknown'}
+           Confidence: ${crash.confidence ? crash.confidence + '%' : 'N/A'}
+           ${crash.description ? `Description: ${crash.description}` : ''}
+            `;
+        }).join('\n')}
     `;
 }
 
+// Download report as text file
 function downloadPDF(content, filename) {
-    // Simple text file download for demo
     const blob = new Blob([content], { type: 'text/plain' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -462,229 +760,168 @@ function downloadPDF(content, filename) {
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
 }
-
-function generateCustomReport() {
-    // Open modal for custom report configuration
-    const modalHTML = `
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div class="bg-[#1E293B] rounded-lg p-6 w-full max-w-md border border-gray-600">
-                <h3 class="text-xl font-bold mb-4 text-sky">Custom Report Configuration</h3>
-                
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Start Date</label>
-                        <input type="date" id="startDate" class="w-full bg-darkbg border border-gray-600 rounded p-2 text-white">
-                    </div>
-                    
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">End Date</label>
-                        <input type="date" id="endDate" class="w-full bg-darkbg border border-gray-600 rounded p-2 text-white">
-                    </div>
-                    
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Report Type</label>
-                        <select id="reportType" class="w-full bg-darkbg border border-gray-600 rounded p-2 text-white">
-                            <option value="detailed">Detailed Report</option>
-                            <option value="summary">Summary Report</option>
-                            <option value="performance">Performance Analysis</option>
-                        </select>
-                    </div>
-                </div>
-                
-                <div class="flex gap-3 mt-6">
-                    <button onclick="generateCustomReportFromModal()" class="flex-1 bg-greenlight hover:bg-greenlight/80 text-white py-2 rounded transition">
-                        Generate
-                    </button>
-                    <button onclick="closeCustomReportModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded transition">
-                        Cancel
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    const modal = document.createElement('div');
-    modal.innerHTML = modalHTML;
-    document.body.appendChild(modal);
-    
-    // Set default dates
-    const today = new Date();
-    const lastMonth = new Date(today.setMonth(today.getMonth() - 1));
-    
-    modal.querySelector('#startDate').value = lastMonth.toISOString().split('T')[0];
-    modal.querySelector('#endDate').value = new Date().toISOString().split('T')[0];
-}
-
-// These need to be global for the modal buttons
-window.generateCustomReportFromModal = async function() {
-    const modal = document.querySelector('.fixed.inset-0');
-    const startDate = document.getElementById('startDate').value;
-    const endDate = document.getElementById('endDate').value;
-    const reportType = document.getElementById('reportType').value;
-    
-    if (!startDate || !endDate) {
-        alert('Please select both start and end dates');
-        return;
-    }
-    
-    try {
-        const supabase = getSupabaseClient();
-        if (!supabase) {
-            alert('Database connection unavailable');
-            return;
-        }
-        
-        const { data, error } = await supabase
-            .from('accident_detections')
-            .select('*')
-            .gte('detection_time', `${startDate}T00:00:00`)
-            .lte('detection_time', `${endDate}T23:59:59`);
-        
-        if (error) throw error;
-        
-        const reportContent = `
-            Custom Report - ${reportType}
-            ==============================
-            Period: ${startDate} to ${endDate}
-            Report Type: ${reportType}
-            Total Incidents: ${data.length}
-            
-            ${data.map((incident, i) => `
-            ${i+1}. ${new Date(incident.detection_time).toLocaleString()}
-               Camera: ${incident.camera_id || 'Unknown'}
-               Status: ${incident.status || 'Unknown'}
-               Confidence: ${incident.confidence || 'N/A'}%
-               ${incident.description ? `Description: ${incident.description}` : ''}
-            `).join('\n')}
-        `;
-        
-        downloadPDF(reportContent, `Custom_Report_${startDate}_to_${endDate}.txt`);
-        closeCustomReportModal();
-        
-    } catch (error) {
-        console.error('Error generating custom report:', error);
-        alert('Error generating custom report: ' + error.message);
-    }
-};
-
-window.closeCustomReportModal = function() {
-    const modal = document.querySelector('.fixed.inset-0');
-    if (modal) {
-        modal.remove();
-    }
-};
 </script>
 {% endblock %}
 
 {% block content %}
-<div class="mb-6">
+<div class="mb-8">
     <h2 class="text-2xl font-bold flex items-center gap-2">
-        <i class="bi bi-graph-up text-sky"></i> Analytics & Reports
+        <i class="bi bi-car-front text-alert"></i> Crash Detection Analytics
     </h2>
-    <p class="text-gray-400 mt-2">Comprehensive crash detection statistics and performance metrics</p>
+    <p class="text-gray-400 mt-2">Analyze crash detection patterns and statistics</p>
 </div>
 
-<!-- Quick Stats -->
-<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-    <div class="bg-[#1E293B] p-4 rounded-lg border border-gray-600 text-center">
-        <i class="bi bi-car-front text-sky text-2xl mb-2"></i>
-        <h3 class="text-lg font-bold text-sky quick-stat" data-type="total-incidents">0</h3>
-        <p class="text-gray-400 text-sm">Total Incidents</p>
-    </div>
-    <div class="bg-[#1E293B] p-4 rounded-lg border border-gray-600 text-center">
-        <i class="bi bi-clock text-greenlight text-2xl mb-2"></i>
-        <h3 class="text-lg font-bold text-greenlight quick-stat" data-type="avg-response">0min</h3>
-        <p class="text-gray-400 text-sm">Avg Response Time</p>
-    </div>
-    <div class="bg-[#1E293B] p-4 rounded-lg border border-gray-600 text-center">
-        <i class="bi bi-check-circle text-gold text-2xl mb-2"></i>
-        <h3 class="text-lg font-bold text-gold quick-stat" data-type="detection-accuracy">0%</h3>
-        <p class="text-gray-400 text-sm">Detection Accuracy</p>
-    </div>
-    <div class="bg-[#1E293B] p-4 rounded-lg border border-gray-600 text-center">
-        <i class="bi bi-exclamation-triangle text-alert text-2xl mb-2"></i>
-        <h3 class="text-lg font-bold text-alert quick-stat" data-type="pending-alerts">0</h3>
-        <p class="text-gray-400 text-sm">Pending Alerts</p>
-    </div>
-</div>
-
-<!-- Crash Statistics Overview -->
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-    <!-- Monthly Crash Trends -->
-    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="text-xl font-bold flex items-center gap-2">
-                <i class="bi bi-graph-up-arrow text-sky"></i> Monthly Crash Trends
-            </h3>
-            <button onclick="loadReportData()" class="text-sm bg-sky/20 hover:bg-sky/30 text-sky px-3 py-1 rounded flex items-center gap-1 transition">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
-            </button>
-        </div>
-        <div class="h-64">
-            <canvas id="monthlyCrashChart"></canvas>
-        </div>
-    </div>
-
-    <!-- Crash Type Distribution -->
-    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
-        <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
-            <i class="bi bi-pie-chart text-alert"></i> Crash Type Distribution
-        </h3>
-        <div class="h-64">
-            <canvas id="crashTypeChart"></canvas>
-        </div>
-    </div>
-</div>
-
-<!-- Detailed Statistics -->
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 mb-8">
-    <!-- Response Time Analysis -->
-    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
-        <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
-            <i class="bi bi-speedometer2 text-greenlight"></i> Response Time Analysis
-        </h3>
-        <div class="h-64">
-            <canvas id="responseTimeChart"></canvas>
-        </div>
-    </div>
-
-    <!-- Camera Performance -->
-    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
-        <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
-            <i class="bi bi-camera-video text-gold"></i> Camera Performance
-        </h3>
-        <div class="h-64">
-            <canvas id="cameraPerformanceChart"></canvas>
-        </div>
-    </div>
-</div>
-
-<!-- Report Generation -->
-<div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+<!-- Date Filter Section -->
+<div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600 mb-8">
     <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
-        <i class="bi bi-file-earmark-arrow-down text-sky"></i> Generate Reports
+        <i class="bi bi-calendar-range text-sky"></i> Select Date Range
     </h3>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="bg-darkbg p-4 rounded-lg border border-gray-600">
-            <h4 class="font-semibold mb-2 text-sky">Daily Report</h4>
-            <p class="text-sm text-gray-400 mb-3">Generate today's crash detection summary</p>
-            <button onclick="exportReport('daily')" class="w-full bg-sky hover:bg-sky/80 text-white py-2 rounded transition flex items-center justify-center gap-2">
-                <i class="bi bi-download"></i> Download PDF
+    
+    <div class="flex flex-wrap gap-3 mb-6">
+        <!-- Date filter buttons -->
+        <button class="date-filter-btn px-5 py-2.5 rounded-lg bg-sky text-white font-medium" data-filter="today">
+            Today
+        </button>
+        <button class="date-filter-btn px-5 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium" data-filter="week">
+            This Week
+        </button>
+        <button class="date-filter-btn px-5 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium" data-filter="month">
+            This Month
+        </button>
+        
+        <!-- Custom date picker -->
+        <div class="relative">
+            <input type="date" id="customDatePicker" 
+                   class="bg-darkbg border border-gray-600 rounded-lg px-5 py-2.5 text-white font-medium">
+            <label class="absolute -top-2 left-3 px-1 text-xs text-gray-400 bg-[#1E293B]">
+                Custom Date
+            </label>
+        </div>
+        
+        <!-- Refresh button -->
+        <button onclick="loadReportData()" class="px-5 py-2.5 rounded-lg bg-greenlight hover:bg-greenlight/80 text-white font-medium flex items-center gap-2">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+    
+    <!-- Status display -->
+    <div class="text-sm text-gray-400">
+        <p>Analyzing crash detection data. Data updates when you change filters.</p>
+    </div>
+</div>
+
+<!-- Main Charts Section -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+    <!-- Crash Frequency Chart -->
+    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xl font-bold flex items-center gap-2">
+                <i class="bi bi-bar-chart-fill text-sky"></i> Crash Frequency
+            </h3>
+            <div class="flex gap-2">
+                <!-- Frequency filter buttons -->
+                <button class="frequency-filter-btn px-3 py-1.5 text-sm rounded bg-sky text-white font-medium" data-frequency="daily">
+                    Daily
+                </button>
+                <button class="frequency-filter-btn px-3 py-1.5 text-sm rounded bg-gray-700 text-gray-300 font-medium" data-frequency="weekly">
+                    Weekly
+                </button>
+                <button class="frequency-filter-btn px-3 py-1.5 text-sm rounded bg-gray-700 text-gray-300 font-medium" data-frequency="monthly">
+                    Monthly
+                </button>
+            </div>
+        </div>
+        <div class="h-72">
+            <canvas id="crashFrequencyChart"></canvas>
+        </div>
+        <div class="mt-4 text-sm text-gray-400">
+            <p>Shows crash detection distribution by selected time period.</p>
+        </div>
+    </div>
+
+    <!-- Crash Locations Chart -->
+    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+        <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
+            <i class="bi bi-map-fill text-alert"></i> Top Crash Locations
+        </h3>
+        <div class="h-72">
+            <canvas id="crashLocationsChart"></canvas>
+        </div>
+        <div class="mt-4 text-sm text-gray-400">
+            <p>Cameras detecting the most crashes (high-risk locations)</p>
+        </div>
+    </div>
+</div>
+
+<!-- Status Distribution & Recent Crashes Section -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+    <!-- Crash Status Distribution -->
+    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+        <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
+            <i class="bi bi-clipboard-check text-gold"></i> Crash Detection Status
+        </h3>
+        <div class="h-72">
+            <canvas id="crashStatusChart"></canvas>
+        </div>
+        <div class="mt-4 text-sm text-gray-400">
+            <p>Distribution of crash detection verification status</p>
+        </div>
+    </div>
+
+    <!-- Recent Crashes List -->
+    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xl font-bold flex items-center gap-2">
+                <i class="bi bi-clock-history text-greenlight"></i> Recent Crash Detections
+            </h3>
+            <span class="text-sm text-gray-400">Latest 5 detections</span>
+        </div>
+        <div class="space-y-4 max-h-72 overflow-y-auto pr-2 recent-crashes-list">
+            <!-- This will be populated by JavaScript -->
+            <div class="text-center py-8 text-gray-500">
+                <i class="bi bi-arrow-clockwise animate-spin text-2xl mb-2"></i>
+                <p>Loading recent crash detections...</p>
+            </div>
+        </div>
+        <div class="mt-4 text-sm text-gray-400">
+            <p>Most recent crash detections for the selected time period</p>
+        </div>
+    </div>
+</div>
+
+<!-- Report Generation Section -->
+<div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
+    <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
+        <i class="bi bi-file-earmark-arrow-down text-sky"></i> Generate Crash Report
+    </h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-darkbg p-5 rounded-lg border border-gray-600">
+            <h4 class="font-semibold text-lg mb-3 text-sky">Export Crash Report</h4>
+            <p class="text-sm text-gray-400 mb-4">Generate a detailed crash detection report from current filters</p>
+            <button onclick="exportReport()" class="w-full bg-sky hover:bg-sky/80 text-white py-3 rounded-lg transition flex items-center justify-center gap-2 font-medium">
+                <i class="bi bi-download"></i> Download Report
             </button>
         </div>
-        <div class="bg-darkbg p-4 rounded-lg border border-gray-600">
-            <h4 class="font-semibold mb-2 text-alert">Weekly Report</h4>
-            <p class="text-sm text-gray-400 mb-3">Weekly performance and incident analysis</p>
-            <button onclick="exportReport('weekly')" class="w-full bg-alert hover:bg-alert/80 text-white py-2 rounded transition flex items-center justify-center gap-2">
-                <i class="bi bi-download"></i> Download PDF
-            </button>
-        </div>
-        <div class="bg-darkbg p-4 rounded-lg border border-gray-600">
-            <h4 class="font-semibold mb-2 text-greenlight">Custom Report</h4>
-            <p class="text-sm text-gray-400 mb-3">Custom date range and metrics</p>
-            <button onclick="generateCustomReport()" class="w-full bg-greenlight hover:bg-greenlight/80 text-white py-2 rounded transition flex items-center justify-center gap-2">
-                <i class="bi bi-gear"></i> Configure
-            </button>
+        <div class="bg-darkbg p-5 rounded-lg border border-gray-600">
+            <h4 class="font-semibold text-lg mb-3 text-greenlight">Crash Analytics Insights</h4>
+            <ul class="text-sm text-gray-400 space-y-3">
+                <li class="flex items-start gap-3">
+                    <i class="bi bi-calendar-check text-sky mt-0.5"></i>
+                    <span>Analyze <strong>crash patterns</strong> over time to identify high-risk periods</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <i class="bi bi-map text-sky mt-0.5"></i>
+                    <span>Identify <strong>high-risk locations</strong> by camera to prioritize safety measures</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <i class="bi bi-check-circle text-sky mt-0.5"></i>
+                    <span>Monitor <strong>verification rates</strong> to improve detection accuracy</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <i class="bi bi-download text-sky mt-0.5"></i>
+                    <span>Export reports for <strong>safety audits</strong> and analysis</span>
+                </li>
+            </ul>
         </div>
     </div>
 </div>
