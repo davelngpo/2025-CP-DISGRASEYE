@@ -18,6 +18,8 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 import threading
 from collections import defaultdict
+from django.views.decorators.csrf import csrf_exempt
+
 
 # Load your trained model
 model_path = os.path.join(settings.BASE_DIR, 'best.pt')

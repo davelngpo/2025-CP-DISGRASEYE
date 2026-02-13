@@ -1,4 +1,3 @@
-{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -78,11 +77,13 @@
     </h1>
 
     <div class="flex items-center gap-6 relative">
+        <!-- Test Alert Button -->
         <button id="testAlertBtn"
             class="bg-yellow-500 hover:bg-yellow-600 text-black px-4 py-2 rounded-lg flex items-center gap-2 transition">
             <i class="bi bi-lightning-charge"></i> Test Alert
         </button>
 
+        <!-- Notification Bell -->
         <div class="relative">
             <button id="notifBtn" class="relative p-2 hover:bg-gray-800 rounded-lg transition">
                 <i class="bi bi-bell text-xl"></i>
@@ -95,7 +96,7 @@
             <div id="notifDropdown"
                 class="hidden absolute right-0 mt-2 w-80 bg-cardbg rounded-lg shadow-xl z-50 border border-gray-700 max-h-96 overflow-y-auto">
                 <div class="p-3 border-b border-gray-700 font-semibold text-sky flex justify-between">
-                    <span>Alerts</span>
+                    <span>Your Alerts</span>
                     <button id="markAllRead" class="text-xs text-sky hover:underline hidden">Mark all read</button>
                 </div>
 
@@ -114,8 +115,10 @@
             </div>
         </div>
 
+        <!-- Last Update -->
         <span id="lastUpdate" class="text-sm text-gray-400">Last update: --</span>
 
+        <!-- Logout Button -->
         <form action="{% url 'logout' %}" method="post">
             {% csrf_token %}
             <button type="submit" class="bg-alert hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition">
@@ -126,6 +129,7 @@
 </header>
 
 <div class="flex min-h-screen">
+    <!-- Sidebar -->
     <aside class="w-64 bg-[#0F172A] p-4">
         <nav class="flex flex-col gap-3">
             <a href="{% url 'dashboard' %}" class="flex items-center px-4 py-2 rounded-lg hover:bg-gray-800 transition">
@@ -146,6 +150,7 @@
         </nav>
     </aside>
 
+    <!-- Main Content -->
     <main class="flex-1 p-6 bg-darkbg">
         {% block content %}{% endblock %}
     </main>
@@ -161,8 +166,8 @@ function initSupabase() {
     if (!supabaseClient) {
         try {
             // Use Django context variables passed from the view
-            const supabaseUrl = "{{ SUPABASE_URL|default:'https://ivigoibymrcvaftgayqv.supabase.co' }}";
-            const supabaseAnonKey = "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aWdvaWJ5bXJjdmFmdGdheXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MDI2MDgsImV4cCI6MjA3OTQ3ODYwOH0.c3MoFVyNGXwZ3zqtgWz62Du0WfA7pranyAXDwRpy5sw' }}";
+            const supabaseUrl = "{{ SUPABASE_URL }}";
+            const supabaseAnonKey = "{{ SUPABASE_ANON_KEY }}";
             
             supabaseClient = supabase.createClient(supabaseUrl, supabaseAnonKey);
             console.log("Supabase initialized with URL:", supabaseUrl);
@@ -221,7 +226,7 @@ document.addEventListener("click", (e) => {
     }
 });
 
-/* LOAD ALERTS */
+/* LOAD NOTIFICATIONS - FOR CURRENT USER ONLY */
 async function loadNotifications() {
     notifLoading.classList.remove("hidden");
     notifEmpty.classList.add("hidden");
@@ -233,9 +238,22 @@ async function loadNotifications() {
             throw new Error("Supabase client not initialized");
         }
 
+        // Get alerts FOR CURRENT USER ONLY
         const { data, error } = await client
             .from("alerts")
-            .select("*")
+            .select(`
+                alert_id,
+                alert_time,
+                message,
+                response_status,
+                detection_id,
+                accident_detections: detection_id (
+                    accident_id,
+                    status,
+                    camera_id
+                )
+            `)
+            .eq("sent_to", {{ user.user_id }})  // Only current user's alerts
             .order("alert_time", { ascending: false })
             .limit(10);
 
@@ -257,19 +275,41 @@ async function loadNotifications() {
                 const isUnread = alert.response_status === "Unacknowledged";
                 if (isUnread) unread++;
 
+                // Determine icon based on accident status
+                let icon = "bi-bell";
+                let colorClass = "text-gray-400";
+                
+                if (alert.accident_detections?.status === 'Pending') {
+                    icon = "bi-eye";
+                    colorClass = "text-gold";
+                } else if (alert.accident_detections?.status === 'Verified') {
+                    icon = "bi-check-circle";
+                    colorClass = "text-greenlight";
+                } else if (alert.accident_detections?.status === 'False Alarm') {
+                    icon = "bi-x-circle";
+                    colorClass = "text-alert";
+                }
+
                 notifList.innerHTML += `
                     <li class="p-3 hover:bg-gray-800/50 ${isUnread ? 'bg-blue-900/20' : ''}">
                         <div class="flex justify-between items-start">
                             <div class="flex-1">
-                                <p class="font-medium text-sm">${alert.message || 'New alert'}</p>
-                                <div class="flex items-center gap-2 mt-1">
-                                    <span class="text-xs ${isUnread ? 'text-red-400' : 'text-gray-400'}">
-                                        ${alert.response_status}
-                                    </span>
-                                    <span class="text-xs text-gray-500">•</span>
-                                    <span class="text-xs text-gray-500">${timeAgo(alert.alert_time)}</span>
+                                <div class="flex items-start gap-2">
+                                    <i class="bi ${icon} ${colorClass} mt-0.5"></i>
+                                    <div>
+                                        <p class="font-medium text-sm">${alert.message || 'New alert'}</p>
+                                        <div class="flex items-center gap-2 mt-1">
+                                            <span class="text-xs text-gray-500">${timeAgo(alert.alert_time)}</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
+                            ${alert.accident_detections?.status === 'Pending' && "{{ user.role }}" === 'admin' ? `
+                            <button onclick="reviewAccident(${alert.detection_id})" 
+                                    class="text-xs bg-sky hover:bg-sky/80 text-white px-2 py-1 rounded ml-2">
+                                Review
+                            </button>
+                            ` : ''}
                         </div>
                     </li>
                 `;
@@ -305,87 +345,121 @@ markAllReadBtn.addEventListener('click', async () => {
             throw new Error("Supabase client not initialized");
         }
         
+        // Mark only current user's alerts as read
         await client
             .from("alerts")
             .update({ response_status: "Acknowledged" })
+            .eq("sent_to", {{ user.user_id }})
             .eq("response_status", "Unacknowledged");
         
         loadNotifications();
-        alert("✓ All alerts marked as read");
+        alert("✓ Your alerts marked as read");
     } catch (err) {
         console.error("Error marking all as read:", err);
-        alert("✗ Failed to mark all as read");
+        alert("✗ Failed to mark alerts as read");
     }
 });
 
-/* TEST ALERT */
+/* TEST ALERT - PROPER WORKFLOW */
 testAlertBtn.addEventListener('click', async () => {
     const originalText = testAlertBtn.innerHTML;
-    const originalState = testAlertBtn.disabled;
     
     try {
-        // Show loading
         testAlertBtn.disabled = true;
-        testAlertBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Creating...';
+        testAlertBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Simulating accident...';
         
         const client = initSupabase();
-        if (!client) {
-            throw new Error("Supabase client not initialized");
-        }
+        if (!client) throw new Error("Supabase client not initialized");
         
-        // Generate test message
-        const locations = ['Main Street', 'Highway', 'Intersection', 'Bridge'];
-        const randomLocation = locations[Math.floor(Math.random() * locations.length)];
-        const timestamp = new Date().toLocaleTimeString();
-        
-        const testMessage = `🚨 TEST: Accident detected at ${randomLocation} at ${timestamp}`;
-        
-        console.log("Inserting test alert...");
-        
-        // Try with null values for foreign keys
-        const { data, error } = await client
-            .from("alerts")
+        // 1. Create a test accident
+        const { data: accident, error: accidentError } = await client
+            .from("accident_detections")
             .insert({
-                message: testMessage,
-                alert_time: new Date().toISOString(),
-                response_status: "Unacknowledged",
-                detection_id: null,
-                sent_to: null
+                camera_id: null,
+                detection_time: new Date().toISOString(),
+                video_clip: '/media/test_accident.mp4',
+                frame_image: '/media/test_frame.jpg',
+                status: 'Pending'
             })
             .select()
             .single();
         
-        if (error) {
-            throw new Error(`Database error: ${error.message}`);
-        }
+        if (accidentError) throw accidentError;
         
-        alert(`✅ Test alert created!\nID: ${data.alert_id}`);
-        console.log("Alert created successfully:", data);
+        // 2. Get ALL users to send PROPER notifications
+        const { data: users, error: userError } = await client
+            .from("users")
+            .select("user_id, role");
+        
+        if (userError) throw userError;
+        
+        // 3. Create PROPER notifications based on role
+        const alerts = [];
+        
+        users.forEach(user => {
+            if (user.role === 'admin') {
+                // ONLY admins get this alert
+                alerts.push({
+                    detection_id: accident.accident_id,
+                    sent_to: user.user_id,
+                    message: '🚨 TEST: Possible Accident Detected (Video Available) - Review needed',
+                    response_status: 'Unacknowledged',
+                    alert_time: new Date().toISOString()
+                });
+            } else if (user.role === 'tanod') {
+                // ONLY tanods get this alert
+                alerts.push({
+                    detection_id: accident.accident_id,
+                    sent_to: user.user_id,
+                    message: '⚠️ TEST: Possible Accident – Standby for confirmation',
+                    response_status: 'Unacknowledged',
+                    alert_time: new Date().toISOString()
+                });
+            }
+        });
+        
+        // 4. Insert all alerts
+        const { error: alertError } = await client
+            .from("alerts")
+            .insert(alerts);
+        
+        if (alertError) throw alertError;
+        
+        alert(`✅ Test workflow started!\nAccident #${accident.accident_id}\n- Admins: Review alert\n- Tanods: Standby alert`);
         
         // Refresh notifications
         loadNotifications();
         
+        // If current user is admin, refresh admin actions
+        if ("{{ user.role }}" === 'admin' && typeof loadAdminActions === 'function') {
+            loadAdminActions();
+        }
+        
     } catch (err) {
         console.error("Test failed:", err);
         alert(`❌ Test failed:\n${err.message}`);
-        
     } finally {
-        // Restore button
-        testAlertBtn.disabled = originalState;
+        testAlertBtn.disabled = false;
         testAlertBtn.innerHTML = originalText;
     }
 });
 
-/* REALTIME */
+/* REALTIME UPDATES */
 function setupRealtime() {
     const client = initSupabase();
     if (client) {
+        // Listen for new alerts for CURRENT USER only
         client
-            .channel("alerts-realtime")
+            .channel(`user-alerts-{{ user.user_id }}`)
             .on("postgres_changes",
-                { event: "INSERT", schema: "public", table: "alerts" },
+                { 
+                    event: "*", 
+                    schema: "public", 
+                    table: "alerts",
+                    filter: `sent_to=eq.{{ user.user_id }}`  // Only current user's alerts
+                },
                 (payload) => {
-                    console.log("New alert detected:", payload.new);
+                    console.log("Your alert updated:", payload);
                     loadNotifications();
                 }
             )
@@ -393,7 +467,7 @@ function setupRealtime() {
     }
 }
 
-/* INIT */
+/* INITIALIZE */
 document.addEventListener("DOMContentLoaded", () => {
     updateLastUpdate();
     loadNotifications();
@@ -403,6 +477,10 @@ document.addEventListener("DOMContentLoaded", () => {
     setInterval(loadNotifications, 30000);
     setInterval(updateLastUpdate, 60000);
 });
+
+// Make some functions available globally for dashboard.html
+window.timeAgo = timeAgo;
+window.reviewAccident = reviewAccident;
 </script>
 
 {% block extra_scripts %}{% endblock %}

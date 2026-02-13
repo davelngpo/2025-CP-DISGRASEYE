@@ -101,8 +101,8 @@
                 dashboardSupabase = window._supabase;
             } else {
                 // Initialize directly if needed
-                const supabaseUrl = "{{ SUPABASE_URL|default:'https://ivigoibymrcvaftgayqv.supabase.co' }}";
-                const supabaseAnonKey = "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aWdvaWJ5bXJjdmFmdGdheXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MDI2MDgsImV4cCI6MjA3OTQ3ODYwOH0.c3MoFVyNGXwZ3zqtgWz62Du0WfA7pranyAXDwRpy5sw' }}";
+                const supabaseUrl = "{{ SUPABASE_URL }}";
+                const supabaseAnonKey = "{{ SUPABASE_ANON_KEY }}";
                 
                 dashboardSupabase = supabase.createClient(supabaseUrl, supabaseAnonKey);
             }
@@ -122,6 +122,8 @@
         
         try {
             const supabaseClient = getSupabaseClient();
+            const currentUserRole = "{{ user.role }}";
+            const currentUserId = {{ user.user_id }};
             
             if (!supabaseClient) {
                 console.error('Supabase client not available');
@@ -133,7 +135,7 @@
                 showLoadingStates();
             }
             
-            // Fetch data with relationships to show workflow
+            // Fetch data based on user role
             const [accidentResponse, alertResponse] = await Promise.allSettled([
                 // Get accident detections
                 supabaseClient
@@ -147,7 +149,7 @@
                     .order('detection_time', { ascending: false })
                     .limit(50),
                     
-                // Get alerts with user and accident info
+                // Get alerts FOR CURRENT USER ONLY
                 supabaseClient
                     .from('alerts')
                     .select(`
@@ -164,9 +166,11 @@
                         ),
                         users: sent_to (
                             first_name,
-                            last_name
+                            last_name,
+                            role
                         )
                     `)
+                    .eq('sent_to', currentUserId)  // Only current user's alerts
                     .order('alert_time', { ascending: false })
                     .limit(20)
             ]);
@@ -179,8 +183,8 @@
                 ? alertResponse.value.data 
                 : [];
             
-            // Process the data with workflow connections
-            processDashboardData(accidentData, alertData);
+            // Process the data
+            processDashboardData(accidentData, alertData, currentUserRole);
             
             // Update last update time
             const lastUpdateElement = document.getElementById('lastUpdate');
@@ -188,7 +192,7 @@
                 lastUpdateElement.textContent = 'Last update: ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
             }
             
-            // Add fade-in animation to updated elements
+            // Add fade-in animation
             document.querySelectorAll('#accidentsToday, #pendingAlerts, #respondedCases, #totalDetections, #responseRate')
                 .forEach(el => {
                     el.classList.add('fade-in');
@@ -216,7 +220,7 @@
                 <tr>
                     <td colspan="6" class="py-8 text-center text-gray-500">
                         <div class="animate-spin h-8 w-8 border-2 border-sky border-t-transparent rounded-full mx-auto mb-2"></div>
-                        Loading alert workflow data...
+                        Loading your alerts...
                     </td>
                 </tr>
             `;
@@ -226,7 +230,7 @@
             mobileView.innerHTML = `
                 <div class="text-center py-8 text-gray-500">
                     <div class="animate-spin h-8 w-8 border-2 border-sky border-t-transparent rounded-full mx-auto mb-2"></div>
-                    <p>Loading alert workflow data...</p>
+                    <p>Loading your alerts...</p>
                 </div>
             `;
         }
@@ -240,7 +244,7 @@
         });
     }
 
-    function processDashboardData(accidentDetections, alerts) {
+    function processDashboardData(accidentDetections, alerts, userRole) {
         const today = new Date().toDateString();
         
         // Calculate statistics with workflow connections
@@ -253,7 +257,7 @@
             }
         }).length;
         
-        // Pending alerts (Unacknowledged)
+        // Pending alerts (Unacknowledged) - ONLY YOUR ALERTS
         const pendingAlerts = alerts.filter(a => a.response_status === 'Unacknowledged').length;
         
         // Responded cases (Verified detections)
@@ -278,8 +282,8 @@
             responseRateBar.style.width = responseRate + '%';
         }
 
-        // Show alert workflow (detection → alert → response)
-        updateAlertWorkflow(accidentDetections, alerts);
+        // Show alert workflow - ONLY YOUR ALERTS
+        updateAlertWorkflow(alerts, userRole);
         updateSystemStatus(accidentDetections);
 
         // Store data for later use
@@ -294,21 +298,15 @@
         };
     }
 
-    function updateAlertWorkflow(detections, alerts) {
+    function updateAlertWorkflow(alerts, userRole) {
         const tbody = document.querySelector('#recentAlertsTable tbody');
         const mobileView = document.getElementById('mobileAlertsView');
         
         if (!tbody || !mobileView) return;
         
-        // Combine recent events from workflow
-        const recentEvents = [];
-        
-        // Add recent alerts (most recent first)
-        const recentAlerts = alerts.slice(0, 8);
-        
-        if (recentAlerts.length > 0) {
-            // Desktop table view - Show alert workflow
-            tbody.innerHTML = recentAlerts.map((alert, index) => {
+        if (alerts.length > 0) {
+            // Desktop table view - Show YOUR alerts
+            tbody.innerHTML = alerts.map((alert, index) => {
                 const accident = alert.accident_detections || {};
                 const user = alert.users || {};
                 let alertTime, detectionTime;
@@ -321,12 +319,34 @@
                     detectionTime = 'N/A';
                 }
                 
+                // Determine camera display
+                const cameraDisplay = accident.camera_id ? 
+                    `Camera ${accident.camera_id}` : 'Unknown Camera';
+                
                 // Determine alert priority based on response status
                 const priorityClass = alert.response_status === 'Unacknowledged' ? 'priority-critical' :
                                     alert.response_status === 'Acknowledged' ? 'priority-high' : 'priority-low';
                 
                 const priorityText = alert.response_status === 'Unacknowledged' ? 'Critical' :
                                    alert.response_status === 'Acknowledged' ? 'High' : 'Low';
+                
+                // Show appropriate action button based on role
+                let actionButton = '';
+                if (userRole === 'admin' && accident.status === 'Pending') {
+                    actionButton = `
+                        <button onclick="reviewAccident(${accident.accident_id})" 
+                                class="text-xs bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded transition">
+                            Review
+                        </button>
+                    `;
+                } else if (userRole === 'tanod' && alert.response_status === 'Unacknowledged') {
+                    actionButton = `
+                        <button onclick="acknowledgeAlert(${alert.alert_id})" 
+                                class="text-xs bg-greenlight hover:bg-greenlight/80 text-white px-3 py-1 rounded transition">
+                            Acknowledge
+                        </button>
+                    `;
+                }
                 
                 return `
                     <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors fade-in" style="animation-delay: ${index * 50}ms">
@@ -339,13 +359,13 @@
                         <td class="py-3 px-4">
                             <div class="flex items-center gap-2">
                                 <i class="bi bi-camera-video text-sky"></i>
-                                <span>Camera ${accident.camera_id || 'Unknown'}</span>
+                                <span>${cameraDisplay}</span>
                             </div>
                         </td>
                         <td class="py-3 px-4">
                             <div class="flex flex-col">
                                 <span class="font-medium">${user.first_name || ''} ${user.last_name || ''}</span>
-                                <span class="text-xs text-gray-400">User ID: ${alert.sent_to}</span>
+                                <span class="text-xs text-gray-400 capitalize">${user.role || 'User'}</span>
                             </div>
                         </td>
                         <td class="py-3 px-4">
@@ -366,10 +386,7 @@
                         </td>
                         <td class="py-3 px-4 text-right">
                             <div class="flex items-center justify-end gap-2">
-                                <button onclick="acknowledgeAlert(${alert.alert_id})" 
-                                        class="text-xs bg-greenlight hover:bg-greenlight/80 text-white px-3 py-1 rounded transition ${alert.response_status !== 'Unacknowledged' ? 'hidden' : ''}">
-                                    Acknowledge
-                                </button>
+                                ${actionButton}
                                 <span class="text-xs text-gray-400">Alert #${alert.alert_id}</span>
                             </div>
                         </td>
@@ -377,8 +394,8 @@
                 `;
             }).join('');
 
-            // Mobile card view - Show alert workflow
-            mobileView.innerHTML = recentAlerts.map((alert, index) => {
+            // Mobile card view - Show YOUR alerts
+            mobileView.innerHTML = alerts.map((alert, index) => {
                 const accident = alert.accident_detections || {};
                 const user = alert.users || {};
                 let alertTime;
@@ -389,6 +406,9 @@
                     alertTime = 'Invalid Date';
                 }
                 
+                const cameraDisplay = accident.camera_id ? 
+                    `Camera ${accident.camera_id}` : 'Unknown Camera';
+                    
                 const priorityClass = alert.response_status === 'Unacknowledged' ? 'priority-critical' :
                                     alert.response_status === 'Acknowledged' ? 'priority-high' : 'priority-low';
                 
@@ -400,28 +420,27 @@
                                         alert.response_status === 'Acknowledged' ? 'bi-bell text-gold' : 
                                         'bi-bell-check text-greenlight'}"></i>
                             <div>
-                                <div class="font-semibold text-white">Alert #${alert.alert_id}</div>
+                                <div class="font-semibold text-white">Your Alert #${alert.alert_id}</div>
                                 <div class="text-xs text-gray-400">${alertTime.split(',')[0]}</div>
                             </div>
                         </div>
                         <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${priorityClass}">
-                            ${alert.response_status}
+                            ${user.role === 'admin' ? 'Admin' : 'Tanod'}
                         </span>
                     </div>
                     <div class="space-y-2">
+                        <div class="text-sm">
+                            <p class="font-medium">${alert.message}</p>
+                        </div>
                         <div class="flex items-center justify-between text-sm">
                             <span class="text-gray-400">Camera</span>
                             <span class="flex items-center gap-1">
                                 <i class="bi bi-camera-video"></i>
-                                ${accident.camera_id || 'Unknown'}
+                                ${cameraDisplay}
                             </span>
                         </div>
                         <div class="flex items-center justify-between text-sm">
-                            <span class="text-gray-400">Sent To</span>
-                            <span>${user.first_name || ''} ${user.last_name || ''}</span>
-                        </div>
-                        <div class="flex items-center justify-between text-sm">
-                            <span class="text-gray-400">Detection Status</span>
+                            <span class="text-gray-400">Accident Status</span>
                             <span class="${accident.status === 'Pending' ? 'text-alert' : 
                                        accident.status === 'Verified' ? 'text-greenlight' : 
                                        'text-gold'}">
@@ -429,10 +448,17 @@
                             </span>
                         </div>
                         <div class="pt-2">
+                            ${userRole === 'admin' && accident.status === 'Pending' ? `
+                            <button onclick="reviewAccident(${accident.accident_id})" 
+                                    class="w-full bg-sky hover:bg-sky/80 text-white py-2 rounded-lg text-sm transition">
+                                Review Accident
+                            </button>
+                            ` : userRole === 'tanod' && alert.response_status === 'Unacknowledged' ? `
                             <button onclick="acknowledgeAlert(${alert.alert_id})" 
-                                    class="w-full bg-greenlight hover:bg-greenlight/80 text-white py-2 rounded-lg text-sm transition ${alert.response_status !== 'Unacknowledged' ? 'hidden' : ''}">
+                                    class="w-full bg-greenlight hover:bg-greenlight/80 text-white py-2 rounded-lg text-sm transition">
                                 Acknowledge Alert
                             </button>
+                            ` : ''}
                             <div class="text-center text-xs text-gray-400 mt-2">
                                 Alert Time: ${alertTime.split(',')[1]?.trim() || ''}
                             </div>
@@ -442,21 +468,21 @@
             `;
             }).join('');
         } else {
-            // No alerts found
+            // No alerts found for this user
             tbody.innerHTML = `
                 <tr>
                     <td colspan="6" class="py-8 text-center text-gray-500 fade-in">
-                        <i class="bi bi-check-circle text-2xl mb-2 text-greenlight"></i>
-                        <p class="text-lg">No recent alerts found</p>
-                        <p class="text-sm text-gray-400 mt-1">All alerts have been responded to</p>
+                        <i class="bi ${userRole === 'admin' ? 'bi-eye text-sky' : 'bi-shield-check text-greenlight'} text-2xl mb-2"></i>
+                        <p class="text-lg">No ${userRole} alerts found</p>
+                        <p class="text-sm text-gray-400 mt-1">You'll be notified when ${userRole === 'admin' ? 'an accident needs review' : 'action is required'}</p>
                     </td>
                 </tr>
             `;
             mobileView.innerHTML = `
                 <div class="text-center py-8 text-gray-500 fade-in">
-                    <i class="bi bi-check-circle text-2xl mb-2 text-greenlight"></i>
-                    <p class="text-lg">No recent alerts found</p>
-                    <p class="text-sm text-gray-400 mt-1">All alerts have been responded to</p>
+                    <i class="bi ${userRole === 'admin' ? 'bi-eye text-sky' : 'bi-shield-check text-greenlight'} text-2xl mb-2"></i>
+                    <p class="text-lg">No ${userRole} alerts found</p>
+                    <p class="text-sm text-gray-400 mt-1">You'll be notified when ${userRole === 'admin' ? 'an accident needs review' : 'action is required'}</p>
                 </div>
             `;
         }
@@ -553,6 +579,311 @@
         }
     }
 
+    // ========== ADMIN WORKFLOW FUNCTIONS ==========
+    
+    async function loadAdminActions() {
+        if ("{{ user.role }}" !== 'admin') return;
+        
+        try {
+            const supabaseClient = getSupabaseClient();
+            
+            // Get pending accidents that need review (camera_id can be null)
+            const { data: pendingData, error: pendingError } = await supabaseClient
+                .from('accident_detections')
+                .select(`
+                    accident_id,
+                    detection_time,
+                    video_clip,
+                    camera_id,
+                    cctv: camera_id (location_name)
+                `)
+                .eq('status', 'Pending')
+                .order('detection_time', { ascending: false })
+                .limit(5);
+            
+            if (pendingError) throw pendingError;
+            
+            // Update pending review section
+            const pendingList = document.getElementById('pendingList');
+            const pendingCount = document.getElementById('pendingCount');
+            
+            if (pendingList) {
+                if (pendingData && pendingData.length > 0) {
+                    pendingCount.textContent = pendingData.length;
+                    
+                    pendingList.innerHTML = pendingData.map(accident => {
+                        // Handle null camera_id
+                        const cameraDisplay = accident.camera_id ? 
+                            `Camera ${accident.camera_id}` : 'Unknown Camera';
+                        const locationName = accident.cctv?.location_name || 
+                            (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
+                        
+                        return `
+                            <div class="bg-[#0A192F] rounded p-3 border border-gray-600">
+                                <div class="flex justify-between items-start mb-2">
+                                    <div>
+                                        <p class="font-medium text-sm">${cameraDisplay}</p>
+                                        <p class="text-xs text-gray-400">
+                                            ${locationName} • 
+                                            ${new Date(accident.detection_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                        </p>
+                                    </div>
+                                    <span class="text-xs bg-gold/20 text-gold px-2 py-1 rounded">Pending</span>
+                                </div>
+                                <div class="flex gap-2 mt-2">
+                                    <button onclick="reviewAccident(${accident.accident_id})" 
+                                            class="flex-1 bg-sky hover:bg-sky/80 text-white py-1.5 text-xs rounded transition">
+                                        <i class="bi bi-eye"></i> Review
+                                    </button>
+                                    <button onclick="verifyAccident(${accident.accident_id}, true)" 
+                                            class="flex-1 bg-greenlight hover:bg-greenlight/80 text-white py-1.5 text-xs rounded transition">
+                                        <i class="bi bi-check"></i> Confirm
+                                    </button>
+                                    <button onclick="verifyAccident(${accident.accident_id}, false)" 
+                                            class="flex-1 bg-alert hover:bg-alert/80 text-white py-1.5 text-xs rounded transition">
+                                        <i class="bi bi-x"></i> False Alarm
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    pendingCount.textContent = '0';
+                    pendingList.innerHTML = `
+                        <div class="text-center py-4 text-gray-500">
+                            <i class="bi bi-check-circle text-lg text-greenlight mb-1"></i>
+                            <p class="text-sm">No pending reviews</p>
+                        </div>
+                    `;
+                }
+            }
+            
+            // Get recently verified accidents
+            const { data: verifiedData, error: verifiedError } = await supabaseClient
+                .from('accident_detections')
+                .select(`
+                    accident_id,
+                    detection_time,
+                    status,
+                    camera_id,
+                    cctv: camera_id (location_name)
+                `)
+                .in('status', ['Verified', 'False Alarm'])
+                .order('detection_time', { ascending: false })
+                .limit(5);
+            
+            if (verifiedError) throw verifiedError;
+            
+            // Update verified section
+            const verifiedList = document.getElementById('verifiedList');
+            const verifiedCount = document.getElementById('verifiedCount');
+            
+            if (verifiedList) {
+                if (verifiedData && verifiedData.length > 0) {
+                    verifiedCount.textContent = verifiedData.length;
+                    
+                    verifiedList.innerHTML = verifiedData.map(accident => {
+                        const cameraDisplay = accident.camera_id ? 
+                            `Camera ${accident.camera_id}` : 'Unknown Camera';
+                        const locationName = accident.cctv?.location_name || 
+                            (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
+                        
+                        return `
+                            <div class="bg-[#0A192F] rounded p-3 border border-gray-600">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <p class="font-medium text-sm">${cameraDisplay}</p>
+                                        <p class="text-xs text-gray-400">
+                                            ${locationName} • 
+                                            ${new Date(accident.detection_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                        </p>
+                                    </div>
+                                    <span class="text-xs ${accident.status === 'Verified' ? 'bg-greenlight/20 text-greenlight' : 'bg-alert/20 text-alert'} px-2 py-1 rounded">
+                                        ${accident.status === 'Verified' ? 'Confirmed' : 'False Alarm'}
+                                    </span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    verifiedCount.textContent = '0';
+                    verifiedList.innerHTML = `
+                        <div class="text-center py-4 text-gray-500">
+                            <i class="bi bi-clock-history text-lg text-gray-400 mb-1"></i>
+                            <p class="text-sm">No verifications yet</p>
+                        </div>
+                    `;
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error loading admin actions:', error);
+        }
+    }
+
+    async function reviewAccident(accidentId) {
+        try {
+            const supabaseClient = getSupabaseClient();
+            
+            const { data: accident, error } = await supabaseClient
+                .from('accident_detections')
+                .select(`
+                    accident_id,
+                    detection_time,
+                    video_clip,
+                    frame_image,
+                    camera_id,
+                    cctv: camera_id (location_name)
+                `)
+                .eq('accident_id', accidentId)
+                .single();
+            
+            if (error) throw error;
+            
+            // Handle null camera
+            const cameraDisplay = accident.camera_id ? 
+                `Camera ${accident.camera_id}` : 'Unknown Camera';
+            const locationName = accident.cctv?.location_name || 
+                (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
+            
+            // Create review modal
+            const modalHTML = `
+                <div id="reviewModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+                    <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+                        <div class="p-4 md:p-6 border-b border-gray-600 flex justify-between items-center">
+                            <div>
+                                <h3 class="text-lg md:text-xl font-bold">Review Accident #${accident.accident_id}</h3>
+                                <p class="text-sm text-gray-400">
+                                    ${locationName} • 
+                                    ${new Date(accident.detection_time).toLocaleString()}
+                                </p>
+                            </div>
+                            <button onclick="document.getElementById('reviewModal').remove()" 
+                                    class="text-gray-400 hover:text-white text-xl">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="p-4 md:p-6">
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                                <div>
+                                    <h4 class="font-semibold mb-2">Video Evidence</h4>
+                                    ${accident.video_clip ? `
+                                    <video src="${accident.video_clip}" controls class="w-full rounded-lg" style="max-height: 300px;"></video>
+                                    ` : `
+                                    <div class="bg-[#112240] rounded-lg p-8 text-center text-gray-500">
+                                        <i class="bi bi-file-earmark-play text-3xl mb-2"></i>
+                                        <p>No video available</p>
+                                    </div>
+                                    `}
+                                </div>
+                                
+                                <div>
+                                    <h4 class="font-semibold mb-2">Verification Actions</h4>
+                                    <div class="space-y-3">
+                                        <button onclick="verifyAccident(${accident.accident_id}, true, true)" 
+                                                class="w-full bg-greenlight hover:bg-greenlight/80 text-white py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2">
+                                            <i class="bi bi-check-circle"></i> Confirm as Real Accident
+                                        </button>
+                                        <p class="text-xs text-gray-400 text-center">
+                                            Tanods will receive immediate alert
+                                        </p>
+                                        
+                                        <button onclick="verifyAccident(${accident.accident_id}, false, true)" 
+                                                class="w-full bg-alert hover:bg-alert/80 text-white py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2">
+                                            <i class="bi bi-x-circle"></i> Mark as False Alarm
+                                        </button>
+                                        <p class="text-xs text-gray-400 text-center">
+                                            Tanods will be notified to stand down
+                                        </p>
+                                        
+                                        <button onclick="document.getElementById('reviewModal').remove()" 
+                                                class="w-full bg-gray-600 hover:bg-gray-500 text-white py-2 rounded transition">
+                                            Cancel Review
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Add modal to page
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            
+        } catch (error) {
+            console.error('Error loading accident for review:', error);
+            alert('❌ Failed to load accident details');
+        }
+    }
+
+    async function verifyAccident(accidentId, isConfirmed, closeModal = false) {
+        if (!confirm(isConfirmed ? 
+            "Confirm this as a real accident?\nTanods will receive emergency alert!" : 
+            "Mark this as false alarm?\nTanods will be notified to stand down.")) {
+            return;
+        }
+        
+        try {
+            const supabaseClient = getSupabaseClient();
+            
+            // Step 4: Update accident status
+            const { error: updateError } = await supabaseClient
+                .from('accident_detections')
+                .update({
+                    status: isConfirmed ? 'Verified' : 'False Alarm',
+                    created_at: new Date().toISOString()
+                })
+                .eq('accident_id', accidentId);
+            
+            if (updateError) throw updateError;
+            
+            // Step 5: Create appropriate alerts for tanods
+            const { data: tanods, error: tanodError } = await supabaseClient
+                .from('users')
+                .select('user_id')
+                .eq('role', 'tanod');
+            
+            if (tanodError) throw tanodError;
+            
+            if (tanods && tanods.length > 0) {
+                const alerts = tanods.map(tanod => ({
+                    detection_id: accidentId,
+                    sent_to: tanod.user_id,
+                    message: isConfirmed ? 
+                        '🚨 CONFIRMED ACCIDENT - Immediate Action Required!' :
+                        '✅ FALSE ALARM - Incident Cancelled. Stand down.',
+                    response_status: 'Unacknowledged',
+                    alert_time: new Date().toISOString()
+                }));
+                
+                const { error: alertError } = await supabaseClient
+                    .from('alerts')
+                    .insert(alerts);
+                
+                if (alertError) throw alertError;
+            }
+            
+            // Show success message
+            if (closeModal) {
+                document.getElementById('reviewModal')?.remove();
+            }
+            
+            alert(isConfirmed ? 
+                '✅ Accident confirmed!\nTanods have been alerted to respond.' :
+                '✅ Marked as false alarm!\nTanods notified to stand down.');
+            
+            // Refresh all data
+            loadDashboardData();
+            loadAdminActions();
+            
+        } catch (error) {
+            console.error('Error verifying accident:', error);
+            alert('❌ Failed to verify accident. Please try again.');
+        }
+    }
+
     // Real-time updates with Supabase
     function setupRealtimeUpdates() {
         const supabaseClient = getSupabaseClient();
@@ -575,18 +906,19 @@
             )
             .subscribe();
 
-        // Subscribe to alerts changes
+        // Subscribe to alerts changes FOR CURRENT USER
         supabaseClient
-            .channel('alerts-changes')
+            .channel('alerts-changes-user')
             .on(
                 'postgres_changes',
                 {
                     event: '*',
                     schema: 'public',
-                    table: 'alerts'
+                    table: 'alerts',
+                    filter: `sent_to=eq.{{ user.user_id }}`  // Only current user's alerts
                 },
                 (payload) => {
-                    console.log('Alert updated:', payload);
+                    console.log('Your alert updated:', payload);
                     loadDashboardData(false);
                 }
             )
@@ -598,6 +930,13 @@
         // Initial load
         loadDashboardData();
         
+        // Load admin actions if user is admin
+        if ("{{ user.role }}" === 'admin') {
+            loadAdminActions();
+            // Refresh admin panel every 15 seconds
+            setInterval(loadAdminActions, 15000);
+        }
+        
         // Set up auto-refresh every 30 seconds
         refreshInterval = setInterval(() => loadDashboardData(false), 30000);
         
@@ -608,6 +947,9 @@
     // Make functions globally available
     window.loadDashboardData = loadDashboardData;
     window.acknowledgeAlert = acknowledgeAlert;
+    window.reviewAccident = reviewAccident;
+    window.verifyAccident = verifyAccident;
+    window.loadAdminActions = loadAdminActions;
 })();
 </script>
 {% endblock %}
@@ -688,6 +1030,64 @@
             </div>
         </div>
     </div>
+
+    <!-- Admin Action Panel (Only for Admins) -->
+    {% if user.role == 'admin' %}
+    <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-sky/20 mb-6 md:mb-8">
+        <div class="p-4 md:p-6 border-b border-gray-600">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i class="bi bi-eye text-sky"></i>
+                    <h3 class="text-lg md:text-xl font-bold">Admin Actions</h3>
+                    <span class="text-sm text-gray-400 hidden sm:inline">Review & Verify Incidents</span>
+                </div>
+                <button onclick="loadAdminActions()" class="text-sm bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded transition flex items-center gap-1">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+        
+        <div class="p-4 md:p-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                <!-- Pending Review Card -->
+                <div class="bg-[#112240] rounded-lg p-4 border border-gold/30">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                            <i class="bi bi-clock-history text-gold"></i>
+                            <h4 class="font-semibold">Pending Review</h4>
+                        </div>
+                        <span id="pendingCount" class="bg-gold text-black text-xs px-2 py-1 rounded-full">0</span>
+                    </div>
+                    <div id="pendingList" class="space-y-3">
+                        <!-- Will be loaded via JavaScript -->
+                        <div class="text-center py-4 text-gray-500">
+                            <div class="animate-spin h-6 w-6 border-2 border-gold border-t-transparent rounded-full mx-auto mb-2"></div>
+                            <p class="text-sm">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Recent Verifications Card -->
+                <div class="bg-[#112240] rounded-lg p-4 border border-greenlight/30">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                            <i class="bi bi-check-circle text-greenlight"></i>
+                            <h4 class="font-semibold">Recent Verifications</h4>
+                        </div>
+                        <span id="verifiedCount" class="bg-greenlight text-black text-xs px-2 py-1 rounded-full">0</span>
+                    </div>
+                    <div id="verifiedList" class="space-y-3">
+                        <!-- Will be loaded via JavaScript -->
+                        <div class="text-center py-4 text-gray-500">
+                            <div class="animate-spin h-6 w-6 border-2 border-greenlight border-t-transparent rounded-full mx-auto mb-2"></div>
+                            <p class="text-sm">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- System Status and Performance Section -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
@@ -775,8 +1175,8 @@
         <div class="p-4 md:p-6 border-b border-gray-600 flex items-center justify-between">
             <div class="flex items-center gap-2">
                 <i class="bi bi-diagram-3 text-sky"></i>
-                <h3 class="text-lg md:text-xl font-bold">Alert Workflow</h3>
-                <span class="text-sm text-gray-400">Detection → Alert → Response</span>
+                <h3 class="text-lg md:text-xl font-bold">Your Alert Workflow</h3>
+                <span class="text-sm text-gray-400">({{ user.role|title }} View)</span>
             </div>
             <div class="flex items-center gap-2">
                 <span class="text-xs text-gray-400 hidden sm:inline">Real-time updates</span>
@@ -803,7 +1203,7 @@
                     <tr>
                         <td colspan="6" class="py-8 text-center text-gray-500">
                             <i class="bi bi-arrow-repeat text-2xl mb-2 animate-spin"></i><br>
-                            Loading alert workflow data...
+                            Loading your alerts...
                         </td>
                     </tr>
                 </tbody>
@@ -814,35 +1214,342 @@
         <div class="md:hidden p-4" id="mobileAlertsView">
             <div class="text-center py-8 text-gray-500">
                 <i class="bi bi-arrow-repeat text-2xl mb-2 animate-spin"></i>
-                <p>Loading alert workflow data...</p>
+                <p>Loading your alerts...</p>
             </div>
         </div>
         
         <!-- Workflow Legend -->
-        <div class="p-4 border-t border-gray-600 bg-[#112240]">
-            <div class="flex flex-wrap gap-3 justify-center text-xs">
-                <div class="flex items-center gap-1">
-                    <div class="w-3 h-3 rounded-full bg-alert"></div>
-                    <span class="text-gray-300">Unacknowledged</span>
+                            <div class="p-4 border-t border-gray-600 bg-[#112240]">
+                            <div class="flex flex-wrap gap-3 md:gap-4 justify-center text-xs md:text-sm">
+                                <div class="flex items-center gap-1">
+                                    <div class="w-3 h-3 rounded-full bg-alert"></div>
+                                    <span>Unacknowledged - Immediate Action</span>
+                                </div>
+                                <div class="flex items-center gap-1">
+                                    <div class="w-3 h-3 rounded-full bg-gold"></div>
+                                    <span>Acknowledged - Response Pending</span>
+                                </div>
+                                <div class="flex items-center gap-1">
+                                    <div class="w-3 h-3 rounded-full bg-greenlight"></div>
+                                    <span>Completed - Case Closed</span>
+                                </div>
+                                {% if user.role == 'admin' %}
+                                <div class="flex items-center gap-1">
+                                    <div class="w-3 h-3 rounded-full bg-sky"></div>
+                                    <span>Admin Review Required</span>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="flex items-center gap-1">
-                    <div class="w-3 h-3 rounded-full bg-gold"></div>
-                    <span class="text-gray-300">Acknowledged</span>
+
+                <!-- User Info Panel -->
+                <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-gray-600 mt-6 md:mt-8">
+                    <div class="p-4 md:p-6 border-b border-gray-600">
+                        <div class="flex items-center gap-3">
+                            <div class="bg-sky/20 p-2 md:p-3 rounded-lg">
+                                <i class="bi bi-person-circle text-sky text-xl md:text-2xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg md:text-xl font-bold">User Information</h3>
+                                <p class="text-sm text-gray-400">Your role and system access</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="p-4 md:p-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                            <div class="space-y-3">
+                                <div>
+                                    <p class="text-sm text-gray-400">Full Name</p>
+                                    <p class="text-base md:text-lg font-semibold">{{ user.first_name }} {{ user.last_name }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-sm text-gray-400">Role</p>
+                                    <p class="text-base md:text-lg">
+                                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded 
+                                            {% if user.role == 'admin' %}bg-sky/20 text-sky
+                                            {% elif user.role == 'tanod' %}bg-greenlight/20 text-greenlight
+                                            {% else %}bg-gray-600 text-gray-300{% endif %}">
+                                            <i class="bi 
+                                                {% if user.role == 'admin' %}bi-shield-check
+                                                {% elif user.role == 'tanod' %}bi-shield-exclamation
+                                                {% else %}bi-person{% endif %}"></i>
+                                            {{ user.role|title }}
+                                        </span>
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="space-y-3">
+                                <div>
+                                    <p class="text-sm text-gray-400">Account Status</p>
+                                    <p class="text-base md:text-lg font-semibold text-greenlight flex items-center gap-1">
+                                        <i class="bi bi-check-circle"></i> Active
+                                    </p>
+                                </div>
+                                <div>
+                                    <p class="text-sm text-gray-400">Dashboard Type</p>
+                                    <p class="text-base md:text-lg">
+                                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky/20 text-sky">
+                                            <i class="bi bi-layout-text-window"></i>
+                                            {% if user.role == 'admin' %}Administrator Dashboard
+                                            {% elif user.role == 'tanod' %}Tanod Response Dashboard
+                                            {% else %}Standard Dashboard{% endif %}
+                                        </span>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 md:mt-6 pt-4 border-t border-gray-600">
+                            <p class="text-sm text-gray-400 mb-2">Your Permissions:</p>
+                            <div class="flex flex-wrap gap-2">
+                                {% if user.role == 'admin' %}
+                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky/20 text-sky text-xs">
+                                    <i class="bi bi-eye"></i> Review Accidents
+                                </span>
+                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky/20 text-sky text-xs">
+                                    <i class="bi bi-check-circle"></i> Verify Detections
+                                </span>
+                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky/20 text-sky text-xs">
+                                    <i class="bi bi-bar-chart"></i> View Analytics
+                                </span>
+                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky/20 text-sky text-xs">
+                                    <i class="bi bi-gear"></i> System Settings
+                                </span>
+                                {% elif user.role == 'tanod' %}
+                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-greenlight/20 text-greenlight text-xs">
+                                    <i class="bi bi-bell"></i> Receive Alerts
+                                </span>
+                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-greenlight/20 text-greenlight text-xs">
+                                    <i class="bi bi-check-circle"></i> Acknowledge Alerts
+                                </span>
+                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-greenlight/20 text-greenlight text-xs">
+                                    <i class="bi bi-clock-history"></i> View History
+                                </span>
+                                {% else %}
+                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-600 text-gray-300 text-xs">
+                                    <i class="bi bi-eye"></i> View Only
+                                </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="flex items-center gap-1">
-                    <div class="w-3 h-3 rounded-full bg-greenlight"></div>
-                    <span class="text-gray-300">Resolved</span>
+
+                <!-- Recent Activity Timeline (Simplified for mobile) -->
+                <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-gray-600 mt-6 md:mt-8">
+                    <div class="p-4 md:p-6 border-b border-gray-600">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <i class="bi bi-clock-history text-sky"></i>
+                                <h3 class="text-lg md:text-xl font-bold">Recent System Activity</h3>
+                            </div>
+                            <span class="text-xs text-gray-400 hidden sm:inline">Last 24 hours</span>
+                        </div>
+                    </div>
+                    <div class="p-4 md:p-6">
+                        <div class="relative">
+                            <!-- Timeline line -->
+                            <div class="absolute left-4 md:left-5 top-0 bottom-0 w-0.5 bg-gray-600"></div>
+                            
+                            <div class="space-y-4 pl-8 md:pl-10">
+                                <!-- Timeline items will be loaded via JavaScript -->
+                                <div id="timelineItems" class="space-y-4">
+                                    <!-- Example timeline item -->
+                                    <div class="relative fade-in">
+                                        <div class="absolute -left-9 md:-left-10 top-1 w-4 h-4 md:w-5 md:h-5 rounded-full border-2 border-sky bg-[#1E293B]"></div>
+                                        <div class="bg-[#112240] rounded-lg p-3 md:p-4 border border-gray-600">
+                                            <div class="flex items-start justify-between">
+                                                <div>
+                                                    <p class="font-medium text-sm md:text-base">System Initialized</p>
+                                                    <p class="text-xs md:text-sm text-gray-400">Dashboard loaded successfully</p>
+                                                </div>
+                                                <span class="text-xs text-gray-400">Just now</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Loading state for real data -->
+                                    <div id="activityLoading" class="text-center py-4 text-gray-500">
+                                        <div class="animate-spin h-6 w-6 border-2 border-sky border-t-transparent rounded-full mx-auto mb-2"></div>
+                                        <p class="text-sm">Loading recent activity...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Refresh activity button -->
+                        <div class="mt-4 pt-4 border-t border-gray-600 text-center">
+                            <button onclick="loadRecentActivity()" class="text-sm bg-sky hover:bg-sky/80 text-white px-4 py-2 rounded transition flex items-center gap-1 mx-auto">
+                                <i class="bi bi-arrow-clockwise"></i> Load Recent Activity
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div class="flex items-center gap-1">
-                    <i class="bi bi-camera-video text-sky"></i>
-                    <span class="text-gray-300">Camera Detection</span>
-                </div>
-                <div class="flex items-center gap-1">
-                    <i class="bi bi-bell text-gold"></i>
-                    <span class="text-gray-300">Alert Generated</span>
-                </div>
+            </div>
+
+            <!-- Footer note -->
+            <div class="mt-6 md:mt-8 text-center text-xs text-gray-500">
+                <p>DisgrasEye Dashboard • Real-time updates enabled • Auto-refresh every 30 seconds</p>
+                <p class="mt-1">Last full sync: <span id="fullSyncTime">--:--:--</span></p>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+// Additional JavaScript for timeline and user-specific features
+
+async function loadRecentActivity() {
+    try {
+        const supabaseClient = getSupabaseClient();
+        const userId = {{ user.user_id }};
+        const userRole = "{{ user.role }}";
+        
+        // Get user-specific activity
+        const { data: alerts, error: alertsError } = await supabaseClient
+            .from('alerts')
+            .select(`
+                alert_time,
+                message,
+                response_status,
+                accident_detections: detection_id (
+                    detection_time,
+                    camera_id
+                )
+            `)
+            .eq('sent_to', userId)
+            .order('alert_time', { ascending: false })
+            .limit(10);
+        
+        if (alertsError) throw alertsError;
+        
+        // Get system activity (admin only)
+        let systemActivity = [];
+        if (userRole === 'admin') {
+            const { data: accidents, error: accidentsError } = await supabaseClient
+                .from('accident_detections')
+                .select(`
+                    detection_time,
+                    status,
+                    camera_id
+                `)
+                .order('detection_time', { ascending: false })
+                .limit(5);
+            
+            if (!accidentsError) {
+                systemActivity = accidents || [];
+            }
+        }
+        
+        // Combine and sort activities
+        const allActivities = [
+            ...alerts.map(a => ({
+                type: 'alert',
+                time: a.alert_time,
+                message: a.message,
+                status: a.response_status,
+                camera: a.accident_detections?.camera_id
+            })),
+            ...systemActivity.map(a => ({
+                type: 'system',
+                time: a.detection_time,
+                message: `Accident ${a.status}`,
+                status: a.status,
+                camera: a.camera_id
+            }))
+        ].sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 10);
+        
+        // Update timeline
+        updateTimeline(allActivities);
+        
+        // Update sync time
+        document.getElementById('fullSyncTime').textContent = new Date().toLocaleTimeString();
+        
+    } catch (error) {
+        console.error('Error loading recent activity:', error);
+    }
+}
+
+function updateTimeline(activities) {
+    const timelineContainer = document.getElementById('timelineItems');
+    const loadingElement = document.getElementById('activityLoading');
+    
+    if (!timelineContainer) return;
+    
+    if (loadingElement) {
+        loadingElement.remove();
+    }
+    
+    if (activities.length === 0) {
+        timelineContainer.innerHTML = `
+            <div class="text-center py-4 text-gray-500">
+                <i class="bi bi-inbox text-2xl mb-2"></i>
+                <p class="text-sm">No recent activity found</p>
+            </div>
+        `;
+        return;
+    }
+    
+    timelineContainer.innerHTML = activities.map((activity, index) => {
+        const time = new Date(activity.time);
+        const timeAgo = getTimeAgo(time);
+        const icon = activity.type === 'alert' ? 
+            (activity.status === 'Unacknowledged' ? 'bi-bell' : 
+             activity.status === 'Acknowledged' ? 'bi-bell-check' : 'bi-bell-slash') :
+            (activity.status === 'Verified' ? 'bi-check-circle' : 
+             activity.status === 'False Alarm' ? 'bi-x-circle' : 'bi-clock');
+        
+        const iconColor = activity.type === 'alert' ?
+            (activity.status === 'Unacknowledged' ? 'text-alert' :
+             activity.status === 'Acknowledged' ? 'text-gold' : 'text-gray-400') :
+            (activity.status === 'Verified' ? 'text-greenlight' :
+             activity.status === 'False Alarm' ? 'text-alert' : 'text-gold');
+        
+        return `
+            <div class="relative fade-in" style="animation-delay: ${index * 50}ms">
+                <div class="absolute -left-9 md:-left-10 top-1 w-4 h-4 md:w-5 md:h-5 rounded-full border-2 ${iconColor.replace('text-', 'border-')} bg-[#1E293B] flex items-center justify-center">
+                    <i class="bi ${icon} text-xs ${iconColor}"></i>
+                </div>
+                <div class="bg-[#112240] rounded-lg p-3 md:p-4 border border-gray-600">
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                            <p class="font-medium text-sm md:text-base">${activity.message}</p>
+                            ${activity.camera ? `
+                            <p class="text-xs md:text-sm text-gray-400 mt-1">
+                                <i class="bi bi-camera-video"></i> Camera ${activity.camera}
+                            </p>
+                            ` : ''}
+                        </div>
+                        <span class="text-xs text-gray-400 ml-2 whitespace-nowrap">${timeAgo}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function getTimeAgo(date) {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+// Initialize timeline on page load
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(() => {
+        loadRecentActivity();
+    }, 1000);
+    
+    // Update sync time initially
+    document.getElementById('fullSyncTime').textContent = new Date().toLocaleTimeString();
+});
+
+// Make timeline function available globally
+window.loadRecentActivity = loadRecentActivity;
+</script>
 {% endblock %}
