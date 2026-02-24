@@ -6,7 +6,6 @@
   <title>Admin Login | DisgrasEye</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-  <!-- NO Supabase JS in frontend! -->
   <script>
     tailwind.config = {
       theme: {
@@ -34,6 +33,19 @@
       background-color: rgba(15, 23, 42, 0.9);
       border: 1px solid rgba(56, 189, 248, 0.2);
     }
+    .loading-spinner {
+      border: 3px solid rgba(56, 189, 248, 0.3);
+      border-radius: 50%;
+      border-top: 3px solid #FCD34D;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   </style>
 </head>
 
@@ -46,25 +58,28 @@
     <p class="text-gray-400 mb-6 text-sm">Barangay Smart Crash Detection</p>
     <h2 class="text-xl font-semibold text-gold mb-6"><i class="fas fa-user-shield mr-2"></i>Admin Login</h2>
 
-    {% if messages %}
-      {% for message in messages %}
-        <div class="bg-alert/20 border border-alert/40 text-alert text-sm rounded-lg py-2 mb-4">
-          {{ message }}
-        </div>
-      {% endfor %}
-    {% endif %}
+    <!-- Message container -->
+    <div id="messageContainer" class="hidden"></div>
 
-    <form method="POST" class="flex flex-col items-center">
+    <!-- Loading indicator -->
+    <div id="loadingIndicator" class="hidden mb-4">
+      <div class="loading-spinner mx-auto"></div>
+    </div>
+
+    <!-- Login Form -->
+    <form id="loginForm" class="flex flex-col items-center" onsubmit="handleLogin(event)">
       {% csrf_token %}
       <input 
-        type="text" 
-        name="username" 
-        placeholder="Username"
+        type="email" 
+        id="email"
+        name="email" 
+        placeholder="Email Address"
         required 
         class="w-full bg-[#1E293B] border border-sky/30 rounded-lg px-4 py-3 text-gray-200 mb-4 focus:outline-none focus:border-gold"
       >
       <input 
         type="password" 
+        id="password"
         name="password" 
         placeholder="Password"
         required 
@@ -72,13 +87,14 @@
       >
       <button 
         type="submit"
-        class="w-full bg-gold text-darkblue font-semibold py-3 rounded-lg hover:bg-yellow-400 transition"
+        id="loginButton"
+        class="w-full bg-gold text-darkblue font-semibold py-3 rounded-lg hover:bg-yellow-400 transition flex items-center justify-center gap-2"
       >
-        <i class="fas fa-sign-in-alt mr-1"></i> Login
+        <i class="fas fa-sign-in-alt"></i> Login
       </button>
     </form>
 
-    <a href="/" class="block mt-6 text-sky text-sm hover:text-gold transition">
+    <a href="{% url 'landing_page' %}" class="block mt-6 text-sky text-sm hover:text-gold transition">
       <i class="fas fa-arrow-left mr-1"></i> Back to Home
     </a>
 
@@ -87,5 +103,84 @@
     </footer>
   </div>
 
+  <script>
+    // Get CSRF token
+    const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    function showMessage(message, isError = true) {
+      const container = document.getElementById('messageContainer');
+      container.innerHTML = `
+        <div class="bg-${isError ? 'alert' : 'green-500'}/20 border border-${isError ? 'alert' : 'green-500'}/40 text-${isError ? 'alert' : 'green-500'} text-sm rounded-lg py-2 px-4 mb-4">
+          ${message}
+        </div>
+      `;
+      container.classList.remove('hidden');
+      
+      setTimeout(() => {
+        container.classList.add('hidden');
+      }, 5000);
+    }
+
+    function setLoading(isLoading) {
+      const button = document.getElementById('loginButton');
+      const spinner = document.getElementById('loadingIndicator');
+      
+      if (isLoading) {
+        button.disabled = true;
+        button.classList.add('opacity-50', 'cursor-not-allowed');
+        button.innerHTML = '<div class="loading-spinner"></div> Logging in...';
+        spinner.classList.remove('hidden');
+      } else {
+        button.disabled = false;
+        button.classList.remove('opacity-50', 'cursor-not-allowed');
+        button.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
+        spinner.classList.add('hidden');
+      }
+    }
+
+    async function handleLogin(event) {
+      event.preventDefault();
+      
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      if (!email || !password) {
+        showMessage('Please enter both email and password');
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        const response = await fetch('/login/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrftoken
+          },
+          body: JSON.stringify({
+            email: email,
+            password: password
+          })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          showMessage('Login successful! Redirecting...', false);
+          setTimeout(() => {
+            window.location.href = data.redirect || '/dashboard/';
+          }, 1000);
+        } else {
+          showMessage(data.error || 'Invalid email or password');
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        showMessage('Connection error. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    }
+  </script>
 </body>
 </html>

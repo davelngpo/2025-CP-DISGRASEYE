@@ -16,6 +16,8 @@ from decouple import config
 
 SUPABASE_URL = config("SUPABASE_URL")
 SUPABASE_ANON_KEY = config("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_ROLE_KEY=config("SUPABASE_SERVICE_ROLE_KEY")
+
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -145,3 +147,7 @@ LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/landing_page/'
 LOGOUT_REDIRECT_URL = '/'
 
+SESSION_COOKIE_AGE = 3600  # 1 hour
+SESSION_COOKIE_SECURE = True  # Set to False for local development
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'

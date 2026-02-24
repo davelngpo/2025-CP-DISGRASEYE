@@ -3,8 +3,7 @@ import cv2
 import time
 import threading
 import json
-from django.shortcuts import render, get_object_or_404
-from django.shortcuts import render, redirect
+from django.shortcuts import render, get_object_or_404, redirect
 from django.http import JsonResponse
 from django.conf import settings
 from django.conf import settings as django_settings  
@@ -19,6 +18,8 @@ from django.contrib.auth import authenticate, login, logout
 import threading
 from collections import defaultdict
 from django.views.decorators.csrf import csrf_exempt
+from supabase import create_client
+from .decorators import login_required
 
 
 # Load your trained model
@@ -34,13 +35,61 @@ current_rtsp_url = ""
 # AUTHENTICATION & BASIC VIEWS
 # =============================================================================
 
+# Initialize Supabase client
+supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY) 
+
+
 @login_required
 def dashboard(request):
+    # Get user data from session (stored during login)
+    supabase_user = request.session.get('supabase_user', {})
+    
+    # Initialize Supabase client
+    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+    
+    # Get the user's profile from the users table to get the correct user_id
+    try:
+        profile = supabase.table('users')\
+            .select('user_id, first_name, last_name, role')\
+            .eq('auth_id', supabase_user.get('id'))\
+            .single()\
+            .execute()
+        
+        if profile.data:
+            user_data = {
+                "user_id": profile.data['user_id'],  # This is the INTEGER ID
+                "auth_id": supabase_user.get('id'),   # This is the UUID
+                "first_name": profile.data.get('first_name', ''),
+                "last_name": profile.data.get('last_name', ''),
+                "role": profile.data.get('role', 'admin'),
+                "email": supabase_user.get('email')
+            }
+        else:
+            user_data = {
+                "user_id": supabase_user.get('id'),  # Fallback
+                "auth_id": supabase_user.get('id'),
+                "first_name": "",
+                "last_name": "",
+                "role": supabase_user.get('role', 'admin'),
+                "email": supabase_user.get('email')
+            }
+    except Exception as e:
+        print(f"Error fetching user profile: {e}")
+        user_data = {
+            "user_id": supabase_user.get('id'),
+            "auth_id": supabase_user.get('id'),
+            "first_name": "",
+            "last_name": "",
+            "role": supabase_user.get('role', 'admin'),
+            "email": supabase_user.get('email')
+        }
+    
     return render(request, 'dashboard/dashboard.html', {
         "SUPABASE_URL": settings.SUPABASE_URL,
         "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
+        "SUPABASE_SERVICE_ROLE_KEY": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "user": user_data
     })
-
 
 @login_required
 def cctv_monitoring(request):
@@ -72,24 +121,62 @@ def site_settings(request):
 
 
 def logout_view(request):
-    logout(request)
+    request.session.flush()
     return redirect('login')
 
 def landing_page(request):
     return render(request, 'dashboard/landing_page.html')
 
 def login_view(request):
-    if request.method == 'POST':
-        username = request.POST.get('username')
-        password = request.POST.get('password')
-        user = authenticate(request, username=username, password=password)
-        
-        if user is not None:
-            login(request, user)
-            return redirect('dashboard')
-        else:
-            messages.error(request, 'Invalid username or password')
+    # Handle AJAX login
+    if request.method == 'POST' and request.headers.get('Content-Type') == 'application/json':
+        try:
+            data = json.loads(request.body)
+            
+            # Authenticate with Supabase using existing credentials
+            auth_response = supabase.auth.sign_in_with_password({
+                "email": data.get('email'),
+                "password": data.get('password')
+            })
+            
+            if auth_response.user:
+                # Check if user has admin role in your users table
+                profile = supabase.table('users')\
+                    .select('role')\
+                    .eq('auth_id', auth_response.user.id)\
+                    .single()\
+                    .execute()
+                
+                if profile.data and profile.data['role'] == 'admin':
+                    # Store minimal user info in session
+                    request.session['supabase_user'] = {
+                        'id': auth_response.user.id,
+                        'email': auth_response.user.email,
+                        'role': profile.data['role']
+                    }
+                    
+                    return JsonResponse({
+                        'success': True,
+                        'redirect': '/dashboard/'
+                    })
+                else:
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'Access denied. Admin account required.'
+                    }, status=403)
+            else:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Invalid email or password'
+                }, status=401)
+                
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'error': str(e)
+            }, status=500)
     
+    # Regular GET request - show login page
     return render(request, 'login/login.html')
 
 # =============================================================================

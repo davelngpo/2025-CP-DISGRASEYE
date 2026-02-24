@@ -80,34 +80,204 @@
         background: linear-gradient(135deg, #00C851, #007E33);
         color: white;
     }
+    
+    /* Review button pulse */
+    .review-pulse {
+        animation: reviewPulse 2s infinite;
+    }
+    
+    @keyframes reviewPulse {
+        0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(56, 189, 248, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+    }
+    
+    /* Re-review button */
+    .re-review-btn {
+        animation: gentlePulse 2s infinite;
+    }
+    
+    @keyframes gentlePulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.7; }
+        100% { opacity: 1; }
+    }
+    
+    /* Modal styles */
+    .modal-overlay {
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(5px);
+    }
+    
+    .loading-spinner {
+        border: 3px solid rgba(56, 189, 248, 0.3);
+        border-radius: 50%;
+        border-top: 3px solid #FCD34D;
+        width: 24px;
+        height: 24px;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+    }
+    
+    /* Toast notification */
+    .toast-notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        animation: slideIn 0.3s ease-out;
+    }
+    
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Status badges */
+    .status-badge {
+        @apply inline-flex items-center px-2 py-1 rounded-full text-xs font-medium;
+    }
+    
+    .status-badge i {
+        @apply mr-1 text-xs;
+    }
+
+    /* Message type indicators */
+    .message-type-initial {
+        border-left: 3px solid #38BDF8;
+    }
+    
+    .message-type-confirmed {
+        border-left: 3px solid #22C55E;
+    }
+    
+    .message-type-cancelled {
+        border-left: 3px solid #EF4444;
+    }
+
+    /* Custom Confirm Modal */
+    .confirm-modal-overlay {
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(5px);
+        animation: fadeIn 0.2s ease-out;
+    }
+    
+    .confirm-modal {
+        animation: slideUp 0.3s ease-out;
+    }
 </style>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-// Dashboard specific JavaScript - wrapped in IIFE to avoid conflicts
+// Dashboard specific JavaScript
 (function() {
     'use strict';
     
-    let dashboardData = {};
     let dashboardSupabase = null;
     let isRefreshing = false;
     let refreshInterval;
 
-    function getSupabaseClient() {
-        if (!dashboardSupabase) {
-            // Try to get from window (set by base.html)
-            if (window._supabase) {
-                dashboardSupabase = window._supabase;
-            } else {
-                // Initialize directly if needed
-                const supabaseUrl = "{{ SUPABASE_URL }}";
-                const supabaseAnonKey = "{{ SUPABASE_ANON_KEY }}";
-                
-                dashboardSupabase = supabase.createClient(supabaseUrl, supabaseAnonKey);
+    // Debug Supabase keys at startup
+    console.log('=== SUPABASE CONFIG DEBUG ===');
+    console.log('URL:', "{{ SUPABASE_URL|escapejs }}");
+    console.log('Anon Key exists:', "{{ SUPABASE_ANON_KEY|escapejs }}" ? 'Yes' : 'No');
+    console.log('Service Key exists:', "{{ SUPABASE_SERVICE_ROLE_KEY|escapejs }}" ? 'Yes' : 'No');
+    console.log('Service Key length:', "{{ SUPABASE_SERVICE_ROLE_KEY|escapejs }}".length);
+    console.log('============================');
+
+    // Toast notification function
+    function showToast(message, type = 'success') {
+        const toastContainer = document.getElementById('toastContainer') || createToastContainer();
+        const toast = document.createElement('div');
+        const bgColor = type === 'success' ? 'bg-greenlight/20 text-greenlight' : 
+                       type === 'error' ? 'bg-alert/20 text-alert' : 
+                       'bg-sky/20 text-sky';
+        const icon = type === 'success' ? 'fa-check-circle' : 
+                    type === 'error' ? 'fa-exclamation-circle' : 
+                    'fa-info-circle';
+        
+        toast.className = `${bgColor} px-4 py-2 rounded-lg flex items-center gap-2 shadow-lg mb-2 animate-slideIn`;
+        toast.innerHTML = `<i class="fas ${icon}"></i> ${message}`;
+        
+        toastContainer.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
+    }
+
+    function createToastContainer() {
+        const container = document.createElement('div');
+        container.id = 'toastContainer';
+        container.className = 'fixed top-20 right-4 z-50 space-y-2';
+        document.body.appendChild(container);
+        return container;
+    }
+
+    // Fixed Supabase client function
+    function getSupabaseClient(useServiceKey = false) {
+        try {
+            const supabaseUrl = "{{ SUPABASE_URL|escapejs }}";
+            
+            if (!supabaseUrl || supabaseUrl === 'None') {
+                console.error('Supabase URL is missing');
+                return null;
             }
+            
+            if (useServiceKey) {
+                const serviceKey = "{{ SUPABASE_SERVICE_ROLE_KEY|escapejs }}";
+                
+                if (!serviceKey || serviceKey === 'None' || serviceKey === '') {
+                    console.error('Service role key is missing or invalid');
+                    showToast('Server configuration error: Service key missing', 'error');
+                    return null;
+                }
+                
+                console.log('Creating admin client with service key');
+                return supabase.createClient(supabaseUrl, serviceKey);
+            }
+            
+            // Regular client for reads
+            if (!dashboardSupabase) {
+                const anonKey = "{{ SUPABASE_ANON_KEY|escapejs }}";
+                
+                if (!anonKey || anonKey === 'None' || anonKey === '') {
+                    console.error('Anon key is missing or invalid');
+                    showToast('Server configuration error: Anon key missing', 'error');
+                    return null;
+                }
+                
+                dashboardSupabase = supabase.createClient(supabaseUrl, anonKey);
+            }
+            return dashboardSupabase;
+            
+        } catch (error) {
+            console.error('Error creating Supabase client:', error);
+            return null;
         }
-        return dashboardSupabase;
+    }
+
+    // Test function for service key
+    async function testServiceKey() {
+        console.log('Testing service key connection...');
+        const client = getSupabaseClient(true);
+        
+        if (!client) {
+            console.error('❌ Service key client is null');
+            return;
+        }
+        
+        const { data, error } = await client
+            .from('accident_detections')
+            .select('count')
+            .limit(1);
+        
+        if (error) {
+            console.error('❌ Service key test failed:', error);
+        } else {
+            console.log('✅ Service key works!');
+        }
     }
 
     async function loadDashboardData(showLoading = true) {
@@ -116,240 +286,251 @@
         isRefreshing = true;
         const refreshBtn = document.querySelector('button[onclick*="loadDashboardData"]');
         if (refreshBtn && showLoading) {
-            refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise spinning"></i> Refreshing...';
+            refreshBtn.innerHTML = '<i class="fas fa-sync-alt spinning"></i> Refreshing...';
             refreshBtn.disabled = true;
         }
         
         try {
-            const supabaseClient = getSupabaseClient();
+            const supabaseClient = getSupabaseClient(false);
             const currentUserRole = "{{ user.role }}";
             const currentUserId = {{ user.user_id }};
             
-            if (!supabaseClient) {
-                console.error('Supabase client not available');
-                return;
-            }
+            if (!supabaseClient) throw new Error('Supabase client not available');
             
-            // Show loading states
             if (showLoading) {
                 showLoadingStates();
             }
             
-            // Fetch data based on user role
-            const [accidentResponse, alertResponse] = await Promise.allSettled([
-                // Get accident detections
-                supabaseClient
-                    .from('accident_detections')
-                    .select(`
-                        accident_id,
+            const { data: alertData, error: alertError } = await supabaseClient
+                .from('alerts')
+                .select(`
+                    alert_id,
+                    alert_time,
+                    message,
+                    response_status,
+                    detection_id,
+                    accident_detections:detection_id (
                         detection_time,
                         camera_id,
-                        status
-                    `)
-                    .order('detection_time', { ascending: false })
-                    .limit(50),
-                    
-                // Get alerts FOR CURRENT USER ONLY
-                supabaseClient
-                    .from('alerts')
-                    .select(`
-                        alert_id,
-                        alert_time,
-                        message,
-                        response_status,
-                        detection_id,
-                        sent_to,
-                        accident_detections: detection_id (
-                            detection_time,
-                            camera_id,
-                            status
-                        ),
-                        users: sent_to (
-                            first_name,
-                            last_name,
-                            role
-                        )
-                    `)
-                    .eq('sent_to', currentUserId)  // Only current user's alerts
-                    .order('alert_time', { ascending: false })
-                    .limit(20)
-            ]);
+                        status,
+                        accident_id,
+                        frame_image,
+                        video_clip
+                    ),
+                    users:sent_to (
+                        first_name,
+                        last_name,
+                        role
+                    )
+                `)
+                .eq('sent_to', currentUserId)
+                .order('alert_time', { ascending: false })
+                .limit(20);
             
-            const accidentData = accidentResponse.status === 'fulfilled' && !accidentResponse.value.error 
-                ? accidentResponse.value.data 
-                : [];
-                
-            const alertData = alertResponse.status === 'fulfilled' && !alertResponse.value.error 
-                ? alertResponse.value.data 
-                : [];
+            if (alertError) throw alertError;
             
-            // Process the data
-            processDashboardData(accidentData, alertData, currentUserRole);
+            const { data: accidentData, error: accidentError } = await supabaseClient
+                .from('accident_detections')
+                .select(`
+                    accident_id,
+                    detection_time,
+                    status
+                `)
+                .order('detection_time', { ascending: false })
+                .limit(100);
             
-            // Update last update time
-            const lastUpdateElement = document.getElementById('lastUpdate');
-            if (lastUpdateElement) {
-                lastUpdateElement.textContent = 'Last update: ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            }
+            if (accidentError) throw accidentError;
             
-            // Add fade-in animation
-            document.querySelectorAll('#accidentsToday, #pendingAlerts, #respondedCases, #totalDetections, #responseRate')
-                .forEach(el => {
-                    el.classList.add('fade-in');
-                    setTimeout(() => el.classList.remove('fade-in'), 300);
-                });
+            const today = new Date().toDateString();
+            const accidentsToday = (accidentData || []).filter(d => {
+                try {
+                    return new Date(d.detection_time).toDateString() === today;
+                } catch {
+                    return false;
+                }
+            }).length;
+            
+            const pendingAccidents = (accidentData || []).filter(d => d.status === 'Pending').length;
+            const adminConfirmed = (accidentData || []).filter(d => d.status === 'Admin_Confirmed').length;
+            const verifiedCases = (accidentData || []).filter(d => d.status === 'Verified').length;
+            const falseAlarms = (accidentData || []).filter(d => d.status === 'False_Alarm').length;
+            const totalDetections = (accidentData || []).length;
+            const pendingAlerts = (alertData || []).filter(a => a.response_status === 'Unacknowledged').length;
+            
+            // Response rate = verified / (total - false alarms that never deployed)
+            const deployableIncidents = totalDetections - falseAlarms;
+            const responseRate = deployableIncidents > 0 ? Math.round((verifiedCases / deployableIncidents) * 100) : 0;
+            
+            updateStats({
+                accidentsToday,
+                pendingAccidents,
+                adminConfirmed,
+                verifiedCases,
+                falseAlarms,
+                totalDetections,
+                pendingAlerts,
+                responseRate
+            });
+            
+            updateAlertWorkflow(alertData || [], currentUserRole);
+            updateSystemStatus(accidentData || []);
+            
+            document.getElementById('lastUpdate').textContent = 
+                'Last update: ' + new Date().toLocaleTimeString();
             
         } catch (error) {
             console.error('Error loading dashboard data:', error);
+            showToast('Error loading data', 'error');
         } finally {
             isRefreshing = false;
             if (refreshBtn && showLoading) {
-                refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> <span class="hidden sm:inline">Refresh</span>';
+                refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> <span class="hidden sm:inline">Refresh</span>';
                 refreshBtn.disabled = false;
             }
         }
     }
 
     function showLoadingStates() {
-        // Show loading animation in tables
         const tbody = document.querySelector('#recentAlertsTable tbody');
-        const mobileView = document.getElementById('mobileAlertsView');
-        
         if (tbody) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="py-8 text-center text-gray-500">
-                        <div class="animate-spin h-8 w-8 border-2 border-sky border-t-transparent rounded-full mx-auto mb-2"></div>
+                    <td colspan="7" class="py-8 text-center text-gray-500">
+                        <div class="loading-spinner mx-auto mb-2"></div>
                         Loading your alerts...
                     </td>
                 </tr>
             `;
         }
         
-        if (mobileView) {
-            mobileView.innerHTML = `
-                <div class="text-center py-8 text-gray-500">
-                    <div class="animate-spin h-8 w-8 border-2 border-sky border-t-transparent rounded-full mx-auto mb-2"></div>
-                    <p>Loading your alerts...</p>
-                </div>
-            `;
-        }
-        
-        // Show skeleton loading for stats
-        ['accidentsToday', 'pendingAlerts', 'respondedCases', 'totalDetections', 'responseRate'].forEach(id => {
+        ['accidentsToday', 'pendingAccidents', 'adminConfirmed', 'verifiedCases', 'falseAlarms', 'totalDetections', 'pendingAlerts', 'responseRate'].forEach(id => {
             const el = document.getElementById(id);
-            if (el) {
-                el.textContent = '--';
-            }
+            if (el) el.textContent = '--';
         });
     }
 
-    function processDashboardData(accidentDetections, alerts, userRole) {
-        const today = new Date().toDateString();
-        
-        // Calculate statistics with workflow connections
-        const accidentsToday = accidentDetections.filter(d => {
-            try {
-                const detectionDate = new Date(d.detection_time).toDateString();
-                return detectionDate === today;
-            } catch {
-                return false;
-            }
-        }).length;
-        
-        // Pending alerts (Unacknowledged) - ONLY YOUR ALERTS
-        const pendingAlerts = alerts.filter(a => a.response_status === 'Unacknowledged').length;
-        
-        // Responded cases (Verified detections)
-        const respondedCases = accidentDetections.filter(d => d.status === 'Verified').length;
-        
-        // Total detections
-        const totalDetections = accidentDetections.length;
-        
-        // Calculate response rate (percentage of detections that have been verified)
-        const responseRate = totalDetections > 0 ? 
-            Math.round((respondedCases / totalDetections) * 100) : 0;
-
-        // Update UI elements with animation
-        updateElementWithAnimation('accidentsToday', accidentsToday);
-        updateElementWithAnimation('pendingAlerts', pendingAlerts);
-        updateElementWithAnimation('respondedCases', respondedCases);
-        updateElementWithAnimation('totalDetections', totalDetections);
-        updateElementWithAnimation('responseRate', responseRate + '%');
+    function updateStats(stats) {
+        updateElement('accidentsToday', stats.accidentsToday);
+        updateElement('pendingAccidents', stats.pendingAccidents || 0);
+        updateElement('adminConfirmed', stats.adminConfirmed || 0);
+        updateElement('verifiedCases', stats.verifiedCases || 0);
+        updateElement('falseAlarms', stats.falseAlarms || 0);
+        updateElement('totalDetections', stats.totalDetections);
+        updateElement('pendingAlerts', stats.pendingAlerts);
+        updateElement('responseRate', stats.responseRate + '%');
         
         const responseRateBar = document.getElementById('responseRateBar');
         if (responseRateBar) {
-            responseRateBar.style.width = responseRate + '%';
+            responseRateBar.style.width = stats.responseRate + '%';
         }
-
-        // Show alert workflow - ONLY YOUR ALERTS
-        updateAlertWorkflow(alerts, userRole);
-        updateSystemStatus(accidentDetections);
-
-        // Store data for later use
-        dashboardData = {
-            accidentsToday, 
-            pendingAlerts, 
-            respondedCases, 
-            totalDetections, 
-            responseRate,
-            recentDetections: accidentDetections,
-            alerts: alerts
-        };
     }
 
     function updateAlertWorkflow(alerts, userRole) {
         const tbody = document.querySelector('#recentAlertsTable tbody');
-        const mobileView = document.getElementById('mobileAlertsView');
+        if (!tbody) return;
         
-        if (!tbody || !mobileView) return;
-        
-        if (alerts.length > 0) {
-            // Desktop table view - Show YOUR alerts
+        if (alerts && alerts.length > 0) {
             tbody.innerHTML = alerts.map((alert, index) => {
                 const accident = alert.accident_detections || {};
                 const user = alert.users || {};
-                let alertTime, detectionTime;
                 
+                let alertTime;
                 try {
                     alertTime = new Date(alert.alert_time).toLocaleString();
-                    detectionTime = accident.detection_time ? new Date(accident.detection_time).toLocaleString() : 'N/A';
                 } catch {
                     alertTime = 'Invalid Date';
-                    detectionTime = 'N/A';
                 }
                 
-                // Determine camera display
-                const cameraDisplay = accident.camera_id ? 
-                    `Camera ${accident.camera_id}` : 'Unknown Camera';
+                const cameraDisplay = accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown';
+                const isUnacknowledged = alert.response_status === 'Unacknowledged';
                 
-                // Determine alert priority based on response status
-                const priorityClass = alert.response_status === 'Unacknowledged' ? 'priority-critical' :
-                                    alert.response_status === 'Acknowledged' ? 'priority-high' : 'priority-low';
+                let messageTypeClass = '';
+                if (alert.message.includes('Possible Accident')) {
+                    messageTypeClass = 'message-type-initial';
+                } else if (alert.message.includes('CONFIRMED')) {
+                    messageTypeClass = 'message-type-confirmed';
+                } else if (alert.message.includes('CANCELLED')) {
+                    messageTypeClass = 'message-type-cancelled';
+                }
                 
-                const priorityText = alert.response_status === 'Unacknowledged' ? 'Critical' :
-                                   alert.response_status === 'Acknowledged' ? 'High' : 'Low';
+                // Get status color class
+                let statusColorClass = '';
+                let statusBgClass = '';
+                switch(accident.status) {
+                    case 'Pending': 
+                        statusColorClass = 'text-gold'; 
+                        statusBgClass = 'bg-gold/20';
+                        break;
+                    case 'Admin_Confirmed': 
+                        statusColorClass = 'text-sky'; 
+                        statusBgClass = 'bg-sky/20';
+                        break;
+                    case 'Verified': 
+                        statusColorClass = 'text-greenlight'; 
+                        statusBgClass = 'bg-greenlight/20';
+                        break;
+                    case 'False_Alarm': 
+                        statusColorClass = 'text-alert'; 
+                        statusBgClass = 'bg-alert/20';
+                        break;
+                    default: 
+                        statusColorClass = 'text-gray-400';
+                        statusBgClass = 'bg-gray-400/20';
+                }
                 
-                // Show appropriate action button based on role
                 let actionButton = '';
-                if (userRole === 'admin' && accident.status === 'Pending') {
+                
+                // Admin: Show Review button ONLY on Pending accidents
+                if (userRole === 'admin' && 
+                    alert.message.includes('Possible Accident') && 
+                    accident.status === 'Pending') {
                     actionButton = `
                         <button onclick="reviewAccident(${accident.accident_id})" 
-                                class="text-xs bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded transition">
-                            Review
+                                class="bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded text-xs transition flex items-center gap-1 review-pulse">
+                            <i class="fas fa-eye"></i> Review
                         </button>
                     `;
-                } else if (userRole === 'tanod' && alert.response_status === 'Unacknowledged') {
+                }
+                
+                // Admin: Show Re-review button for accidents that were already decided (in case of misclick)
+                else if (userRole === 'admin' && 
+                    (accident.status === 'Admin_Confirmed' || accident.status === 'False_Alarm')) {
+                    actionButton = `
+                        <button onclick="reReviewAccident(${accident.accident_id}, '${accident.status}')" 
+                                class="bg-gold hover:bg-yellow-500 text-darkblue px-3 py-1 rounded text-xs transition flex items-center gap-1 re-review-btn"
+                                title="Click if you made a wrong decision">
+                            <i class="fas fa-undo-alt"></i> Re-review
+                        </button>
+                    `;
+                }
+                
+                // Tanod: Show Acknowledge button on any unacknowledged alert
+                else if (userRole === 'tanod' && isUnacknowledged) {
                     actionButton = `
                         <button onclick="acknowledgeAlert(${alert.alert_id})" 
-                                class="text-xs bg-greenlight hover:bg-greenlight/80 text-white px-3 py-1 rounded transition">
-                            Acknowledge
+                                class="bg-gold hover:bg-yellow-500 text-darkblue px-3 py-1 rounded text-xs transition flex items-center gap-1">
+                            <i class="fas fa-check"></i> Acknowledge
                         </button>
                     `;
+                }
+                
+                else if (!actionButton && alert.response_status === 'Acknowledged') {
+                    actionButton = `<span class="text-gold text-xs"><i class="fas fa-check-circle"></i> Acknowledged</span>`;
+                } else if (!actionButton && alert.response_status === 'Resolved') {
+                    actionButton = `<span class="text-greenlight text-xs"><i class="fas fa-check-double"></i> Resolved</span>`;
+                }
+                
+                // Format status display
+                let statusDisplay = accident.status || 'Unknown';
+                if (statusDisplay === 'Admin_Confirmed') {
+                    statusDisplay = 'Dispatched';
+                } else if (statusDisplay === 'False_Alarm') {
+                    statusDisplay = 'False Alarm';
                 }
                 
                 return `
-                    <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors fade-in" style="animation-delay: ${index * 50}ms">
+                    <tr class="border-b border-gray-600 hover:bg-gray-600/30 transition-colors fade-in ${messageTypeClass}" 
+                        style="animation-delay: ${index * 50}ms">
                         <td class="py-3 px-4">
                             <div class="flex flex-col">
                                 <span class="font-medium">${alertTime.split(',')[0]}</span>
@@ -358,7 +539,7 @@
                         </td>
                         <td class="py-3 px-4">
                             <div class="flex items-center gap-2">
-                                <i class="bi bi-camera-video text-sky"></i>
+                                <i class="fas fa-video text-sky"></i>
                                 <span>${cameraDisplay}</span>
                             </div>
                         </td>
@@ -369,145 +550,41 @@
                             </div>
                         </td>
                         <td class="py-3 px-4">
-                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${priorityClass}">
-                                <i class="bi ${alert.response_status === 'Unacknowledged' ? 'bi-exclamation-triangle' : 
-                                            alert.response_status === 'Acknowledged' ? 'bi-exclamation-circle' : 
-                                            'bi-check-circle'} mr-1"></i>
-                                ${priorityText}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium 
+                                ${isUnacknowledged ? 'bg-alert/20 text-alert' : 
+                                  alert.response_status === 'Acknowledged' ? 'bg-gold/20 text-gold' : 
+                                  'bg-greenlight/20 text-greenlight'}">
+                                <i class="fas ${isUnacknowledged ? 'fa-clock' : 
+                                            alert.response_status === 'Acknowledged' ? 'fa-check-circle' : 
+                                            'fa-check-double'} mr-1"></i>
+                                ${alert.response_status}
                             </span>
                         </td>
-                        <td class="py-3 px-4 ${alert.response_status === 'Unacknowledged' ? 'text-alert' : 
-                                            alert.response_status === 'Acknowledged' ? 'text-gold' : 
-                                            'text-greenlight'} flex items-center gap-1">
-                            <i class="bi ${alert.response_status === 'Unacknowledged' ? 'bi-clock' : 
-                                        alert.response_status === 'Acknowledged' ? 'bi-person-check' : 
-                                        'bi-check-circle'}"></i>
-                            ${alert.response_status || 'Unknown'}
+                        <td class="py-3 px-4">
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${statusBgClass} ${statusColorClass}">
+                                <i class="fas ${accident.status === 'Pending' ? 'fa-hourglass-half' : 
+                                            accident.status === 'Admin_Confirmed' ? 'fa-paper-plane' :
+                                            accident.status === 'Verified' ? 'fa-check-double' : 
+                                            'fa-times-circle'} mr-1"></i>
+                                ${statusDisplay}
+                            </span>
                         </td>
                         <td class="py-3 px-4 text-right">
-                            <div class="flex items-center justify-end gap-2">
-                                ${actionButton}
-                                <span class="text-xs text-gray-400">Alert #${alert.alert_id}</span>
-                            </div>
+                            ${actionButton}
                         </td>
                     </tr>
                 `;
             }).join('');
-
-            // Mobile card view - Show YOUR alerts
-            mobileView.innerHTML = alerts.map((alert, index) => {
-                const accident = alert.accident_detections || {};
-                const user = alert.users || {};
-                let alertTime;
-                
-                try {
-                    alertTime = new Date(alert.alert_time).toLocaleString();
-                } catch {
-                    alertTime = 'Invalid Date';
-                }
-                
-                const cameraDisplay = accident.camera_id ? 
-                    `Camera ${accident.camera_id}` : 'Unknown Camera';
-                    
-                const priorityClass = alert.response_status === 'Unacknowledged' ? 'priority-critical' :
-                                    alert.response_status === 'Acknowledged' ? 'priority-high' : 'priority-low';
-                
-                return `
-                <div class="bg-[#112240] rounded-lg p-4 border border-gray-600 mb-3 fade-in" style="animation-delay: ${index * 50}ms">
-                    <div class="flex justify-between items-start mb-2">
-                        <div class="flex items-center gap-2">
-                            <i class="bi ${alert.response_status === 'Unacknowledged' ? 'bi-bell text-alert' : 
-                                        alert.response_status === 'Acknowledged' ? 'bi-bell text-gold' : 
-                                        'bi-bell-check text-greenlight'}"></i>
-                            <div>
-                                <div class="font-semibold text-white">Your Alert #${alert.alert_id}</div>
-                                <div class="text-xs text-gray-400">${alertTime.split(',')[0]}</div>
-                            </div>
-                        </div>
-                        <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${priorityClass}">
-                            ${user.role === 'admin' ? 'Admin' : 'Tanod'}
-                        </span>
-                    </div>
-                    <div class="space-y-2">
-                        <div class="text-sm">
-                            <p class="font-medium">${alert.message}</p>
-                        </div>
-                        <div class="flex items-center justify-between text-sm">
-                            <span class="text-gray-400">Camera</span>
-                            <span class="flex items-center gap-1">
-                                <i class="bi bi-camera-video"></i>
-                                ${cameraDisplay}
-                            </span>
-                        </div>
-                        <div class="flex items-center justify-between text-sm">
-                            <span class="text-gray-400">Accident Status</span>
-                            <span class="${accident.status === 'Pending' ? 'text-alert' : 
-                                       accident.status === 'Verified' ? 'text-greenlight' : 
-                                       'text-gold'}">
-                                ${accident.status || 'Unknown'}
-                            </span>
-                        </div>
-                        <div class="pt-2">
-                            ${userRole === 'admin' && accident.status === 'Pending' ? `
-                            <button onclick="reviewAccident(${accident.accident_id})" 
-                                    class="w-full bg-sky hover:bg-sky/80 text-white py-2 rounded-lg text-sm transition">
-                                Review Accident
-                            </button>
-                            ` : userRole === 'tanod' && alert.response_status === 'Unacknowledged' ? `
-                            <button onclick="acknowledgeAlert(${alert.alert_id})" 
-                                    class="w-full bg-greenlight hover:bg-greenlight/80 text-white py-2 rounded-lg text-sm transition">
-                                Acknowledge Alert
-                            </button>
-                            ` : ''}
-                            <div class="text-center text-xs text-gray-400 mt-2">
-                                Alert Time: ${alertTime.split(',')[1]?.trim() || ''}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            }).join('');
         } else {
-            // No alerts found for this user
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="py-8 text-center text-gray-500 fade-in">
-                        <i class="bi ${userRole === 'admin' ? 'bi-eye text-sky' : 'bi-shield-check text-greenlight'} text-2xl mb-2"></i>
-                        <p class="text-lg">No ${userRole} alerts found</p>
-                        <p class="text-sm text-gray-400 mt-1">You'll be notified when ${userRole === 'admin' ? 'an accident needs review' : 'action is required'}</p>
+                    <td colspan="7" class="py-8 text-center text-gray-500">
+                        <i class="fas fa-bell-slash text-4xl mb-2"></i>
+                        <p class="text-lg">No alerts found</p>
+                        <p class="text-sm text-gray-400 mt-1">You don't have any alerts yet</p>
                     </td>
                 </tr>
             `;
-            mobileView.innerHTML = `
-                <div class="text-center py-8 text-gray-500 fade-in">
-                    <i class="bi ${userRole === 'admin' ? 'bi-eye text-sky' : 'bi-shield-check text-greenlight'} text-2xl mb-2"></i>
-                    <p class="text-lg">No ${userRole} alerts found</p>
-                    <p class="text-sm text-gray-400 mt-1">You'll be notified when ${userRole === 'admin' ? 'an accident needs review' : 'action is required'}</p>
-                </div>
-            `;
-        }
-    }
-
-    async function acknowledgeAlert(alertId) {
-        try {
-            const supabaseClient = getSupabaseClient();
-            const { error } = await supabaseClient
-                .from('alerts')
-                .update({ 
-                    response_status: 'Acknowledged'
-                })
-                .eq('alert_id', alertId);
-            
-            if (error) throw error;
-            
-            // Show success message
-            alert('✅ Alert acknowledged successfully!');
-            
-            // Refresh dashboard data
-            loadDashboardData();
-        } catch (error) {
-            console.error('Error acknowledging alert:', error);
-            alert('❌ Failed to acknowledge alert. Please try again.');
         }
     }
 
@@ -516,440 +593,691 @@
         const statusIcon = document.getElementById('statusIcon');
         const statusText = document.getElementById('statusText');
         
-        if (!statusElement || !statusIcon || !statusText) return;
+        if (!statusElement) return;
         
-        // Check for recent detections
         const recentDetection = detections[0];
-        let status = 'normal';
         let message = 'System Active';
         let color = 'greenlight';
-        let icon = 'bi-check-circle';
+        let icon = 'fa-check-circle';
         
         if (recentDetection) {
             try {
                 const timeDiff = new Date() - new Date(recentDetection.detection_time);
                 const minutesAgo = Math.floor(timeDiff / (1000 * 60));
                 
-                if (minutesAgo < 5) {
-                    status = 'active';
-                    message = 'System Active';
-                    color = 'greenlight';
-                    icon = 'bi-check-circle';
-                } else if (minutesAgo < 30) {
-                    status = 'warning';
-                    message = 'Delayed Data';
-                    color = 'gold';
-                    icon = 'bi-exclamation-triangle';
-                } else {
-                    status = 'inactive';
+                if (minutesAgo > 30) {
                     message = 'No Recent Data';
                     color = 'alert';
-                    icon = 'bi-exclamation-circle';
+                    icon = 'fa-exclamation-circle';
                 }
             } catch {
-                status = 'warning';
-                message = 'Data Error';
-                color = 'gold';
-                icon = 'bi-exclamation-triangle';
+                // Ignore date errors
             }
-        } else {
-            status = 'inactive';
-            message = 'No Data';
-            color = 'alert';
-            icon = 'bi-exclamation-circle';
         }
         
-        // Update UI
-        statusElement.className = `bg-${color}/20 text-${color} text-sm px-3 py-1 rounded-full flex items-center gap-1 fade-in`;
-        statusIcon.className = `bi ${icon}`;
+        statusElement.className = `bg-${color}/20 text-${color} text-sm px-3 py-1 rounded-full flex items-center gap-1`;
+        statusIcon.className = `fas ${icon}`;
         statusText.textContent = message;
     }
 
-    function updateElementWithAnimation(elementId, text) {
-        const element = document.getElementById(elementId);
-        if (element) {
-            // Only animate if value changed
-            if (element.textContent !== text.toString()) {
-                element.classList.add('fade-in');
-                element.textContent = text;
-                setTimeout(() => element.classList.remove('fade-in'), 300);
-            } else {
-                element.textContent = text;
-            }
+    function updateElement(id, value) {
+        const el = document.getElementById(id);
+        if (el) {
+            el.classList.add('fade-in');
+            el.textContent = value;
+            setTimeout(() => el.classList.remove('fade-in'), 300);
         }
     }
 
-    // ========== ADMIN WORKFLOW FUNCTIONS ==========
-    
-    async function loadAdminActions() {
-        if ("{{ user.role }}" !== 'admin') return;
-        
+    async function acknowledgeAlert(alertId) {
         try {
-            const supabaseClient = getSupabaseClient();
+            const adminClient = getSupabaseClient(true);
+            if (!adminClient) throw new Error("Supabase admin client not initialized");
             
-            // Get pending accidents that need review (camera_id can be null)
-            const { data: pendingData, error: pendingError } = await supabaseClient
-                .from('accident_detections')
-                .select(`
-                    accident_id,
-                    detection_time,
-                    video_clip,
-                    camera_id,
-                    cctv: camera_id (location_name)
-                `)
-                .eq('status', 'Pending')
-                .order('detection_time', { ascending: false })
-                .limit(5);
+            const button = event.target;
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            button.disabled = true;
             
-            if (pendingError) throw pendingError;
+            const { error } = await adminClient
+                .from('alerts')
+                .update({ response_status: 'Acknowledged' })
+                .eq('alert_id', alertId)
+                .eq('sent_to', {{ user.user_id }});
             
-            // Update pending review section
-            const pendingList = document.getElementById('pendingList');
-            const pendingCount = document.getElementById('pendingCount');
+            if (error) throw error;
             
-            if (pendingList) {
-                if (pendingData && pendingData.length > 0) {
-                    pendingCount.textContent = pendingData.length;
-                    
-                    pendingList.innerHTML = pendingData.map(accident => {
-                        // Handle null camera_id
-                        const cameraDisplay = accident.camera_id ? 
-                            `Camera ${accident.camera_id}` : 'Unknown Camera';
-                        const locationName = accident.cctv?.location_name || 
-                            (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
-                        
-                        return `
-                            <div class="bg-[#0A192F] rounded p-3 border border-gray-600">
-                                <div class="flex justify-between items-start mb-2">
-                                    <div>
-                                        <p class="font-medium text-sm">${cameraDisplay}</p>
-                                        <p class="text-xs text-gray-400">
-                                            ${locationName} • 
-                                            ${new Date(accident.detection_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                        </p>
-                                    </div>
-                                    <span class="text-xs bg-gold/20 text-gold px-2 py-1 rounded">Pending</span>
-                                </div>
-                                <div class="flex gap-2 mt-2">
-                                    <button onclick="reviewAccident(${accident.accident_id})" 
-                                            class="flex-1 bg-sky hover:bg-sky/80 text-white py-1.5 text-xs rounded transition">
-                                        <i class="bi bi-eye"></i> Review
-                                    </button>
-                                    <button onclick="verifyAccident(${accident.accident_id}, true)" 
-                                            class="flex-1 bg-greenlight hover:bg-greenlight/80 text-white py-1.5 text-xs rounded transition">
-                                        <i class="bi bi-check"></i> Confirm
-                                    </button>
-                                    <button onclick="verifyAccident(${accident.accident_id}, false)" 
-                                            class="flex-1 bg-alert hover:bg-alert/80 text-white py-1.5 text-xs rounded transition">
-                                        <i class="bi bi-x"></i> False Alarm
-                                    </button>
-                                </div>
-                            </div>
-                        `;
-                    }).join('');
-                } else {
-                    pendingCount.textContent = '0';
-                    pendingList.innerHTML = `
-                        <div class="text-center py-4 text-gray-500">
-                            <i class="bi bi-check-circle text-lg text-greenlight mb-1"></i>
-                            <p class="text-sm">No pending reviews</p>
-                        </div>
-                    `;
-                }
-            }
-            
-            // Get recently verified accidents
-            const { data: verifiedData, error: verifiedError } = await supabaseClient
-                .from('accident_detections')
-                .select(`
-                    accident_id,
-                    detection_time,
-                    status,
-                    camera_id,
-                    cctv: camera_id (location_name)
-                `)
-                .in('status', ['Verified', 'False Alarm'])
-                .order('detection_time', { ascending: false })
-                .limit(5);
-            
-            if (verifiedError) throw verifiedError;
-            
-            // Update verified section
-            const verifiedList = document.getElementById('verifiedList');
-            const verifiedCount = document.getElementById('verifiedCount');
-            
-            if (verifiedList) {
-                if (verifiedData && verifiedData.length > 0) {
-                    verifiedCount.textContent = verifiedData.length;
-                    
-                    verifiedList.innerHTML = verifiedData.map(accident => {
-                        const cameraDisplay = accident.camera_id ? 
-                            `Camera ${accident.camera_id}` : 'Unknown Camera';
-                        const locationName = accident.cctv?.location_name || 
-                            (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
-                        
-                        return `
-                            <div class="bg-[#0A192F] rounded p-3 border border-gray-600">
-                                <div class="flex justify-between items-start">
-                                    <div>
-                                        <p class="font-medium text-sm">${cameraDisplay}</p>
-                                        <p class="text-xs text-gray-400">
-                                            ${locationName} • 
-                                            ${new Date(accident.detection_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                        </p>
-                                    </div>
-                                    <span class="text-xs ${accident.status === 'Verified' ? 'bg-greenlight/20 text-greenlight' : 'bg-alert/20 text-alert'} px-2 py-1 rounded">
-                                        ${accident.status === 'Verified' ? 'Confirmed' : 'False Alarm'}
-                                    </span>
-                                </div>
-                            </div>
-                        `;
-                    }).join('');
-                } else {
-                    verifiedCount.textContent = '0';
-                    verifiedList.innerHTML = `
-                        <div class="text-center py-4 text-gray-500">
-                            <i class="bi bi-clock-history text-lg text-gray-400 mb-1"></i>
-                            <p class="text-sm">No verifications yet</p>
-                        </div>
-                    `;
-                }
-            }
+            showToast('Alert acknowledged successfully');
+            await loadDashboardData();
             
         } catch (error) {
-            console.error('Error loading admin actions:', error);
+            console.error('Error in acknowledgeAlert:', error);
+            showToast('Failed to acknowledge alert', 'error');
         }
     }
 
-    async function reviewAccident(accidentId) {
+    // Re-review function for when admin makes a wrong decision
+    async function reReviewAccident(accidentId, currentStatus) {
         try {
-            const supabaseClient = getSupabaseClient();
+            const confirmed = await showCustomConfirm(
+                'Re-review Accident',
+                `This accident is currently marked as "${currentStatus === 'Admin_Confirmed' ? 'Dispatched' : 'False Alarm'}". Do you want to change this decision?`,
+                'warning'
+            );
             
-            const { data: accident, error } = await supabaseClient
+            if (!confirmed) return;
+            
+            const adminClient = getSupabaseClient(true);
+            if (!adminClient) throw new Error("Supabase admin client not initialized");
+            
+            // Fetch the accident details
+            const supabaseClient = getSupabaseClient(false);
+            const { data: accident, error: fetchError } = await supabaseClient
+                .from('accident_detections')
+                .select('*')
+                .eq('accident_id', accidentId)
+                .single();
+            
+            if (fetchError) throw fetchError;
+            
+            // Show review modal for re-review
+            const modalHTML = `
+                <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
+                    <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+                        <div class="p-4 border-b border-gray-600 flex justify-between items-center">
+                            <h3 class="text-lg font-bold">Re-review Accident #${accidentId}</h3>
+                            <button onclick="document.getElementById('reviewModal').remove()" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="p-8 text-center">
+                            <div class="loading-spinner mx-auto"></div>
+                            <p class="mt-4 text-gray-400">Loading accident details for re-review...</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            
+            // Fetch fresh accident details
+            const { data: freshAccident, error: freshError } = await supabaseClient
                 .from('accident_detections')
                 .select(`
                     accident_id,
                     detection_time,
-                    video_clip,
-                    frame_image,
                     camera_id,
-                    cctv: camera_id (location_name)
+                    status,
+                    frame_image,
+                    video_clip,
+                    cctv:camera_id (
+                        location_name,
+                        status
+                    )
                 `)
                 .eq('accident_id', accidentId)
                 .single();
             
-            if (error) throw error;
+            if (freshError) throw freshError;
             
-            // Handle null camera
-            const cameraDisplay = accident.camera_id ? 
-                `Camera ${accident.camera_id}` : 'Unknown Camera';
-            const locationName = accident.cctv?.location_name || 
-                (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
+            document.getElementById('reviewModal').remove();
             
-            // Create review modal
-            const modalHTML = `
-                <div id="reviewModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+            const detectionTime = new Date(freshAccident.detection_time).toLocaleString();
+            const locationName = freshAccident.cctv?.location_name || 
+                (freshAccident.camera_id ? `Camera ${freshAccident.camera_id}` : 'Unknown Location');
+            
+            // Create re-review modal with special options
+            const reReviewModalHTML = `
+                <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
                     <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
                         <div class="p-4 md:p-6 border-b border-gray-600 flex justify-between items-center">
                             <div>
-                                <h3 class="text-lg md:text-xl font-bold">Review Accident #${accident.accident_id}</h3>
+                                <h3 class="text-lg md:text-xl font-bold">Re-review Accident #${freshAccident.accident_id}</h3>
                                 <p class="text-sm text-gray-400">
-                                    ${locationName} • 
-                                    ${new Date(accident.detection_time).toLocaleString()}
+                                    <i class="fas fa-map-marker-alt mr-1"></i> ${locationName} • 
+                                    <i class="fas fa-clock mr-1"></i> ${detectionTime}
+                                </p>
+                                <p class="text-xs text-gold mt-1">
+                                    <i class="fas fa-exclamation-triangle"></i> 
+                                    Current Status: ${freshAccident.status === 'Admin_Confirmed' ? 'Dispatched' : 'False Alarm'}
                                 </p>
                             </div>
                             <button onclick="document.getElementById('reviewModal').remove()" 
                                     class="text-gray-400 hover:text-white text-xl">
-                                <i class="bi bi-x-lg"></i>
+                                <i class="fas fa-times"></i>
                             </button>
                         </div>
                         
-                        <div class="p-4 md:p-6">
-                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-                                <div>
-                                    <h4 class="font-semibold mb-2">Video Evidence</h4>
-                                    ${accident.video_clip ? `
-                                    <video src="${accident.video_clip}" controls class="w-full rounded-lg" style="max-height: 300px;"></video>
-                                    ` : `
-                                    <div class="bg-[#112240] rounded-lg p-8 text-center text-gray-500">
-                                        <i class="bi bi-file-earmark-play text-3xl mb-2"></i>
-                                        <p>No video available</p>
+                        <div class="p-4 md:p-6 overflow-y-auto" style="max-height: calc(90vh - 120px);">
+                            <div class="mb-6 p-4 bg-gold/20 border border-gold/30 rounded-lg">
+                                <div class="flex items-center gap-3">
+                                    <i class="fas fa-undo-alt text-gold text-xl"></i>
+                                    <div>
+                                        <p class="font-medium">You are about to change your decision</p>
+                                        <p class="text-xs text-gray-400 mt-1">
+                                            This will send new notifications to tanods based on your updated decision.
+                                        </p>
                                     </div>
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                                <div>
+                                    <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                        <i class="fas fa-image text-gold"></i>
+                                        Detection Frame
+                                    </h4>
+                                    ${freshAccident.frame_image ? `
+                                        <img src="${freshAccident.frame_image}" alt="Accident frame" 
+                                             class="w-full rounded-lg border border-gray-600 cursor-pointer hover:opacity-90 transition"
+                                             style="max-height: 200px; object-fit: cover;"
+                                             onclick="window.open('${freshAccident.frame_image}', '_blank')"
+                                             title="Click to enlarge">
+                                    ` : `
+                                        <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
+                                            <i class="fas fa-image text-3xl mb-2 text-gray-600"></i>
+                                            <p class="text-sm">No frame image available</p>
+                                        </div>
                                     `}
                                 </div>
                                 
                                 <div>
-                                    <h4 class="font-semibold mb-2">Verification Actions</h4>
-                                    <div class="space-y-3">
-                                        <button onclick="verifyAccident(${accident.accident_id}, true, true)" 
-                                                class="w-full bg-greenlight hover:bg-greenlight/80 text-white py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2">
-                                            <i class="bi bi-check-circle"></i> Confirm as Real Accident
-                                        </button>
-                                        <p class="text-xs text-gray-400 text-center">
-                                            Tanods will receive immediate alert
+                                    <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                        <i class="fas fa-video text-sky"></i>
+                                        Video Evidence
+                                    </h4>
+                                    ${freshAccident.video_clip ? `
+                                        <video src="${freshAccident.video_clip}" controls class="w-full rounded-lg border border-gray-600 bg-black"
+                                               style="max-height: 200px;">
+                                            Your browser does not support the video tag.
+                                        </video>
+                                    ` : `
+                                        <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
+                                            <i class="fas fa-video-slash text-3xl mb-2 text-gray-600"></i>
+                                            <p class="text-sm">No video available</p>
+                                        </div>
+                                    `}
+                                </div>
+                            </div>
+                            
+                            <div class="mb-6 p-4 bg-[#112240] rounded-lg border border-gray-600">
+                                <h4 class="font-semibold mb-3 flex items-center gap-2">
+                                    <i class="fas fa-info-circle text-sky"></i>
+                                    Detection Details
+                                </h4>
+                                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <p class="text-xs text-gray-400">Camera ID</p>
+                                        <p class="font-medium">${freshAccident.camera_id || 'Not assigned'}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-400">Location</p>
+                                        <p class="font-medium">${locationName}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-400">Camera Status</p>
+                                        <p class="font-medium ${freshAccident.cctv?.status === 'Active' ? 'text-greenlight' : 'text-alert'}">
+                                            ${freshAccident.cctv?.status || 'Unknown'}
                                         </p>
-                                        
-                                        <button onclick="verifyAccident(${accident.accident_id}, false, true)" 
-                                                class="w-full bg-alert hover:bg-alert/80 text-white py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2">
-                                            <i class="bi bi-x-circle"></i> Mark as False Alarm
-                                        </button>
-                                        <p class="text-xs text-gray-400 text-center">
-                                            Tanods will be notified to stand down
-                                        </p>
-                                        
-                                        <button onclick="document.getElementById('reviewModal').remove()" 
-                                                class="w-full bg-gray-600 hover:bg-gray-500 text-white py-2 rounded transition">
-                                            Cancel Review
-                                        </button>
                                     </div>
                                 </div>
+                            </div>
+                            
+                            <div class="flex flex-col sm:flex-row gap-3 justify-end">
+                                <button onclick="document.getElementById('reviewModal').remove()" 
+                                        class="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition">
+                                    Cancel
+                                </button>
+                                <button onclick="updateDecision(${freshAccident.accident_id}, ${freshAccident.status === 'Admin_Confirmed' ? 'false' : 'true'}, true)" 
+                                        class="bg-gold hover:bg-yellow-500 text-darkblue px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
+                                    <i class="fas fa-undo-alt"></i>
+                                    Change to ${freshAccident.status === 'Admin_Confirmed' ? 'False Alarm' : 'Dispatch Tanod'}
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
             `;
             
-            // Add modal to page
-            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            document.body.insertAdjacentHTML('beforeend', reReviewModalHTML);
             
         } catch (error) {
-            console.error('Error loading accident for review:', error);
-            alert('❌ Failed to load accident details');
+            console.error('Error in reReviewAccident:', error);
+            const modal = document.getElementById('reviewModal');
+            if (modal) modal.remove();
+            showToast('Failed to load accident details for re-review', 'error');
         }
     }
 
-    async function verifyAccident(accidentId, isConfirmed, closeModal = false) {
-        if (!confirm(isConfirmed ? 
-            "Confirm this as a real accident?\nTanods will receive emergency alert!" : 
-            "Mark this as false alarm?\nTanods will be notified to stand down.")) {
-            return;
-        }
-        
+    // Update decision function for re-review
+    async function updateDecision(accidentId, newIsConfirmed, closeModal = false) {
         try {
-            const supabaseClient = getSupabaseClient();
+            const confirmed = await showCustomConfirm(
+                'Confirm Decision Change',
+                `Are you sure you want to change this accident to ${newIsConfirmed ? 'Dispatch Tanod' : 'False Alarm'}? New notifications will be sent to tanods.`,
+                'warning'
+            );
             
-            // Step 4: Update accident status
-            const { error: updateError } = await supabaseClient
+            if (!confirmed) return;
+            
+            const adminClient = getSupabaseClient(true);
+            if (!adminClient) throw new Error("Supabase admin client not initialized");
+            
+            showToast('Updating decision...', 'info');
+            
+            // Set new status based on updated decision
+            const newStatus = newIsConfirmed ? 'Admin_Confirmed' : 'False_Alarm';
+            
+            // Update the accident status
+            const { error: updateError } = await adminClient
                 .from('accident_detections')
-                .update({
-                    status: isConfirmed ? 'Verified' : 'False Alarm',
-                    created_at: new Date().toISOString()
-                })
+                .update({ status: newStatus })
                 .eq('accident_id', accidentId);
             
             if (updateError) throw updateError;
             
-            // Step 5: Create appropriate alerts for tanods
-            const { data: tanods, error: tanodError } = await supabaseClient
+            // Send cancellation/confirmation alerts to tanods based on new decision
+            const { data: tanods, error: tanodError } = await adminClient
                 .from('users')
                 .select('user_id')
                 .eq('role', 'tanod');
             
-            if (tanodError) throw tanodError;
-            
-            if (tanods && tanods.length > 0) {
-                const alerts = tanods.map(tanod => ({
+            if (!tanodError && tanods && tanods.length > 0) {
+                // First, send cancellation for previous decision
+                const cancelAlerts = tanods.map(tanod => ({
                     detection_id: accidentId,
                     sent_to: tanod.user_id,
-                    message: isConfirmed ? 
-                        '🚨 CONFIRMED ACCIDENT - Immediate Action Required!' :
-                        '✅ FALSE ALARM - Incident Cancelled. Stand down.',
+                    message: 'PREVIOUS DECISION CANCELLED - New assessment in progress',
                     response_status: 'Unacknowledged',
                     alert_time: new Date().toISOString()
                 }));
                 
-                const { error: alertError } = await supabaseClient
-                    .from('alerts')
-                    .insert(alerts);
+                await adminClient.from('alerts').insert(cancelAlerts);
                 
-                if (alertError) throw alertError;
+                // Then send new decision alerts
+                const newAlerts = tanods.map(tanod => ({
+                    detection_id: accidentId,
+                    sent_to: tanod.user_id,
+                    message: newIsConfirmed ? 
+                        'CONFIRMED ACCIDENT - Please respond to location' :
+                        'INCIDENT CANCELLED - False alarm. Stand down.',
+                    response_status: 'Unacknowledged',
+                    alert_time: new Date().toISOString()
+                }));
+                
+                await adminClient.from('alerts').insert(newAlerts);
+                
+                showToast(`Decision updated! Tanods notified of change.`, 'success');
             }
             
-            // Show success message
             if (closeModal) {
-                document.getElementById('reviewModal')?.remove();
+                const modal = document.getElementById('reviewModal');
+                if (modal) modal.remove();
             }
             
-            alert(isConfirmed ? 
-                '✅ Accident confirmed!\nTanods have been alerted to respond.' :
-                '✅ Marked as false alarm!\nTanods notified to stand down.');
-            
-            // Refresh all data
-            loadDashboardData();
-            loadAdminActions();
+            await loadDashboardData();
             
         } catch (error) {
-            console.error('Error verifying accident:', error);
-            alert('❌ Failed to verify accident. Please try again.');
+            console.error('Error in updateDecision:', error);
+            showToast('Failed to update decision', 'error');
         }
     }
 
-    // Real-time updates with Supabase
-    function setupRealtimeUpdates() {
-        const supabaseClient = getSupabaseClient();
-        if (!supabaseClient) return;
-
-        // Subscribe to accident_detections changes
-        supabaseClient
-            .channel('accident-detections-changes')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'accident_detections'
-                },
-                (payload) => {
-                    console.log('Accident detection updated:', payload);
-                    loadDashboardData(false);
-                }
-            )
-            .subscribe();
-
-        // Subscribe to alerts changes FOR CURRENT USER
-        supabaseClient
-            .channel('alerts-changes-user')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'alerts',
-                    filter: `sent_to=eq.{{ user.user_id }}`  // Only current user's alerts
-                },
-                (payload) => {
-                    console.log('Your alert updated:', payload);
-                    loadDashboardData(false);
-                }
-            )
-            .subscribe();
+    function showCustomConfirm(title, message, type = 'confirm') {
+        return new Promise((resolve) => {
+            const modalId = 'customConfirmModal';
+            
+            const existingModal = document.getElementById(modalId);
+            if (existingModal) existingModal.remove();
+            
+            let bgColor, icon, buttonText;
+            
+            if (type === 'warning') {
+                bgColor = 'bg-gold';
+                icon = 'fa-exclamation-triangle';
+                buttonText = 'Yes, Change Decision';
+            } else if (type === 'confirm') {
+                bgColor = 'bg-greenlight';
+                icon = 'fa-check-circle';
+                buttonText = 'Confirm & Dispatch Tanod';
+            } else {
+                bgColor = 'bg-alert';
+                icon = 'fa-times-circle';
+                buttonText = 'Mark as False Alarm';
+            }
+            
+            const modalHTML = `
+                <div id="${modalId}" class="fixed inset-0 confirm-modal-overlay z-[9999] flex items-center justify-center p-4">
+                    <div class="confirm-modal bg-[#1E293B] rounded-xl max-w-md w-full border border-gray-600 shadow-2xl">
+                        <div class="p-6">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="${bgColor}/20 p-3 rounded-full">
+                                    <i class="fas ${icon} ${bgColor} text-2xl"></i>
+                                </div>
+                                <h3 class="text-xl font-bold text-white">${title}</h3>
+                            </div>
+                            
+                            <p class="text-gray-300 mb-6">${message}</p>
+                            
+                            <div class="flex gap-3 justify-end">
+                                <button id="cancelConfirmBtn" 
+                                        class="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition">
+                                    Cancel
+                                </button>
+                                <button id="confirmActionBtn" 
+                                        class="px-4 py-2 ${bgColor} hover:opacity-80 text-white rounded-lg transition flex items-center gap-2">
+                                    <i class="fas ${icon}"></i>
+                                    ${buttonText}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            
+            document.getElementById('cancelConfirmBtn').addEventListener('click', () => {
+                document.getElementById(modalId).remove();
+                resolve(false);
+            });
+            
+            document.getElementById('confirmActionBtn').addEventListener('click', () => {
+                document.getElementById(modalId).remove();
+                resolve(true);
+            });
+        });
     }
 
-    // Initialize when DOM is ready
+    async function reviewAccident(accidentId) {
+        try {
+            const supabaseClient = getSupabaseClient(false);
+            if (!supabaseClient) throw new Error("Supabase client not initialized");
+            
+            const modalHTML = `
+                <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
+                    <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+                        <div class="p-4 border-b border-gray-600 flex justify-between items-center">
+                            <h3 class="text-lg font-bold">Loading Accident Details...</h3>
+                            <button onclick="document.getElementById('reviewModal').remove()" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="p-8 text-center">
+                            <div class="loading-spinner mx-auto"></div>
+                            <p class="mt-4 text-gray-400">Fetching accident data...</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            
+            const { data: accident, error } = await supabaseClient
+                .from('accident_detections')
+                .select(`
+                    accident_id,
+                    detection_time,
+                    camera_id,
+                    status,
+                    frame_image,
+                    video_clip,
+                    cctv:camera_id (
+                        location_name,
+                        status
+                    )
+                `)
+                .eq('accident_id', accidentId)
+                .single();
+            
+            if (error) throw error;
+            
+            document.getElementById('reviewModal').remove();
+            
+            const detectionTime = new Date(accident.detection_time).toLocaleString();
+            const locationName = accident.cctv?.location_name || 
+                (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
+            
+            const reviewModalHTML = `
+                <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
+                    <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+                        <div class="p-4 md:p-6 border-b border-gray-600 flex justify-between items-center">
+                            <div>
+                                <h3 class="text-lg md:text-xl font-bold">Review Accident #${accident.accident_id}</h3>
+                                <p class="text-sm text-gray-400">
+                                    <i class="fas fa-map-marker-alt mr-1"></i> ${locationName} • 
+                                    <i class="fas fa-clock mr-1"></i> ${detectionTime}
+                                </p>
+                            </div>
+                            <button onclick="document.getElementById('reviewModal').remove()" 
+                                    class="text-gray-400 hover:text-white text-xl">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="p-4 md:p-6 overflow-y-auto" style="max-height: calc(90vh - 120px);">
+                            <div class="mb-6 p-4 ${accident.status === 'Pending' ? 'bg-gold/20 border border-gold/30' : 'bg-gray-700/20 border border-gray-600'} rounded-lg">
+                                <div class="flex items-center gap-3">
+                                    <i class="fas ${accident.status === 'Pending' ? 'fa-clock text-gold' : 'fa-check-circle text-greenlight'} text-xl"></i>
+                                    <div>
+                                        <p class="font-medium">Current Status: <span class="${accident.status === 'Pending' ? 'text-gold' : 'text-greenlight'}">${accident.status === 'Pending' ? 'Pending Review' : accident.status}</span></p>
+                                        <p class="text-xs text-gray-400 mt-1">
+                                            ${accident.status === 'Pending' ? 'Review the footage and decide: Is this a real accident or false alarm?' : 'This accident has been reviewed'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                                <div>
+                                    <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                        <i class="fas fa-image text-gold"></i>
+                                        Detection Frame
+                                    </h4>
+                                    ${accident.frame_image ? `
+                                        <img src="${accident.frame_image}" alt="Accident frame" 
+                                             class="w-full rounded-lg border border-gray-600 cursor-pointer hover:opacity-90 transition"
+                                             style="max-height: 200px; object-fit: cover;"
+                                             onclick="window.open('${accident.frame_image}', '_blank')"
+                                             title="Click to enlarge">
+                                        <p class="text-xs text-gray-400 mt-1">
+                                            <i class="fas fa-search-plus"></i> Click image to enlarge
+                                        </p>
+                                    ` : `
+                                        <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
+                                            <i class="fas fa-image text-3xl mb-2 text-gray-600"></i>
+                                            <p class="text-sm">Test Mode: No frame image</p>
+                                            <p class="text-xs text-gray-600 mt-1">Image will appear once CCTV is integrated</p>
+                                        </div>
+                                    `}
+                                </div>
+                                
+                                <div>
+                                    <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                        <i class="fas fa-video text-sky"></i>
+                                        Video Evidence
+                                    </h4>
+                                    ${accident.video_clip ? `
+                                        <video src="${accident.video_clip}" controls class="w-full rounded-lg border border-gray-600 bg-black"
+                                               style="max-height: 200px;">
+                                            Your browser does not support the video tag.
+                                        </video>
+                                        <p class="text-xs text-gray-400 mt-1">
+                                            <i class="fas fa-info-circle"></i> Video clip from time of detection
+                                        </p>
+                                    ` : `
+                                        <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
+                                            <i class="fas fa-video-slash text-3xl mb-2 text-gray-600"></i>
+                                            <p class="text-sm">Test Mode: No video available</p>
+                                            <p class="text-xs text-gray-600 mt-1">Video will appear once CCTV is integrated</p>
+                                        </div>
+                                    `}
+                                </div>
+                            </div>
+                            
+                            <div class="mb-6 p-4 bg-[#112240] rounded-lg border border-gray-600">
+                                <h4 class="font-semibold mb-3 flex items-center gap-2">
+                                    <i class="fas fa-info-circle text-sky"></i>
+                                    Detection Details
+                                </h4>
+                                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <p class="text-xs text-gray-400">Camera ID</p>
+                                        <p class="font-medium">${accident.camera_id || 'Not assigned'}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-400">Location</p>
+                                        <p class="font-medium">${locationName}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-400">Camera Status</p>
+                                        <p class="font-medium ${accident.cctv?.status === 'Active' ? 'text-greenlight' : 'text-alert'}">
+                                            ${accident.cctv?.status || 'Unknown'}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-400">Detection Time</p>
+                                        <p class="font-medium text-xs">${detectionTime}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-400">Accident ID</p>
+                                        <p class="font-medium text-xs">#${accident.accident_id}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex flex-col sm:flex-row gap-3 justify-end">
+                                <button onclick="verifyAccident(${accident.accident_id}, false, true)" 
+                                        class="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
+                                    <i class="fas fa-times-circle"></i>
+                                    False Alarm (Cancel)
+                                </button>
+                                <button onclick="verifyAccident(${accident.accident_id}, true, true)" 
+                                        class="bg-greenlight hover:bg-greenlight/80 text-white px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
+                                    <i class="fas fa-check-circle"></i>
+                                    Confirm & Dispatch Tanod
+                                </button>
+                            </div>
+                            
+                            <p class="text-xs text-gray-500 text-center mt-4">
+                                <i class="fas fa-shield-alt"></i>
+                                <strong>Confirm:</strong> Tanod dispatched, they will verify on-site<br>
+                                <strong>False Alarm:</strong> Incident cancelled immediately
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', reviewModalHTML);
+            
+        } catch (error) {
+            console.error('Error in reviewAccident:', error);
+            const modal = document.getElementById('reviewModal');
+            if (modal) modal.remove();
+            showToast('Failed to load accident details: ' + error.message, 'error');
+        }
+    }
+
+    async function verifyAccident(accidentId, isConfirmed, closeModal = false) {
+        try {
+            const confirmed = await showCustomConfirm(
+                isConfirmed ? 'Confirm & Dispatch Tanod' : 'Mark as False Alarm',
+                isConfirmed ? 
+                    'Are you sure you want to dispatch a tanod? They will respond to the location and verify on-site.' : 
+                    'Are you sure you want to cancel this incident? No tanod will be dispatched.',
+                isConfirmed ? 'confirm' : 'cancel'
+            );
+            
+            if (!confirmed) return;
+            
+            const adminClient = getSupabaseClient(true);
+            if (!adminClient) {
+                showToast('Server configuration error. Please contact administrator.', 'error');
+                return;
+            }
+            
+            showToast('Processing...', 'info');
+            
+            // Set new status based on admin decision
+            const newStatus = isConfirmed ? 'Admin_Confirmed' : 'False_Alarm';
+            
+            const { error: updateError } = await adminClient
+                .from('accident_detections')
+                .update({ status: newStatus })
+                .eq('accident_id', accidentId);
+            
+            if (updateError) {
+                console.error('Update error:', updateError);
+                throw updateError;
+            }
+            
+            // If confirmed, send alerts to ALL tanods
+            if (isConfirmed) {
+                const { data: tanods, error: tanodError } = await adminClient
+                    .from('users')
+                    .select('user_id')
+                    .eq('role', 'tanod');
+                
+                if (!tanodError && tanods && tanods.length > 0) {
+                    const alerts = tanods.map(tanod => ({
+                        detection_id: accidentId,
+                        sent_to: tanod.user_id,
+                        message: 'CONFIRMED ACCIDENT - Please respond to location',
+                        response_status: 'Unacknowledged',
+                        alert_time: new Date().toISOString()
+                    }));
+                    
+                    await adminClient.from('alerts').insert(alerts);
+                    showToast(`Tanod dispatched! ${tanods.length} tanod(s) notified.`, 'success');
+                }
+            } else {
+                // If false alarm, send cancellation alerts to tanods
+                const { data: tanods, error: tanodError } = await adminClient
+                    .from('users')
+                    .select('user_id')
+                    .eq('role', 'tanod');
+                
+                if (!tanodError && tanods && tanods.length > 0) {
+                    const alerts = tanods.map(tanod => ({
+                        detection_id: accidentId,
+                        sent_to: tanod.user_id,
+                        message: 'INCIDENT CANCELLED - False alarm. Stand down.',
+                        response_status: 'Unacknowledged',
+                        alert_time: new Date().toISOString()
+                    }));
+                    
+                    await adminClient.from('alerts').insert(alerts);
+                    showToast('False alarm! Tanods notified to stand down.', 'success');
+                }
+            }
+            
+            if (closeModal) {
+                const modal = document.getElementById('reviewModal');
+                if (modal) modal.remove();
+            }
+            
+            await loadDashboardData();
+            
+        } catch (error) {
+            console.error('Error in verifyAccident:', error);
+            showToast('Failed to process verification: ' + (error.message || 'Unknown error'), 'error');
+        }
+    }
+
+    // Initialize
     document.addEventListener('DOMContentLoaded', function() {
-        // Initial load
         loadDashboardData();
-        
-        // Load admin actions if user is admin
-        if ("{{ user.role }}" === 'admin') {
-            loadAdminActions();
-            // Refresh admin panel every 15 seconds
-            setInterval(loadAdminActions, 15000);
-        }
-        
-        // Set up auto-refresh every 30 seconds
         refreshInterval = setInterval(() => loadDashboardData(false), 30000);
-        
-        // Set up real-time updates
-        setupRealtimeUpdates();
+        // Test service key after 1 second
+        setTimeout(testServiceKey, 1000);
     });
 
     // Make functions globally available
     window.loadDashboardData = loadDashboardData;
-    window.acknowledgeAlert = acknowledgeAlert;
     window.reviewAccident = reviewAccident;
     window.verifyAccident = verifyAccident;
-    window.loadAdminActions = loadAdminActions;
+    window.acknowledgeAlert = acknowledgeAlert;
+    window.reReviewAccident = reReviewAccident;
+    window.updateDecision = updateDecision;
 })();
 </script>
 {% endblock %}
@@ -968,20 +1296,20 @@
             <p class="text-base md:text-xl text-graylight mb-4 md:mb-6">AI-Powered Real-Time Vehicle Crash Detection System</p>
             <div class="flex flex-col sm:flex-row gap-3 md:gap-4 justify-center">
                 <a href="{% url 'cctv_monitoring' %}" class="bg-sky hover:bg-sky/80 text-white px-4 py-2 md:px-6 md:py-3 rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-sm md:text-base">
-                    <i class="bi bi-camera-video"></i> <span class="hidden xs:inline">Monitor CCTV</span>
+                    <i class="fas fa-video"></i> <span class="hidden xs:inline">Monitor CCTV</span>
                 </a>
                 <a href="{% url 'live_monitoring' %}" class="bg-alert hover:bg-alert/80 text-white px-4 py-2 md:px-6 md:py-3 rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-sm md:text-base">
-                    <i class="bi bi-broadcast"></i> <span class="hidden xs:inline">Live Detection</span>
+                    <i class="fas fa-broadcast-tower"></i> <span class="hidden xs:inline">Live Detection</span>
                 </a>
                 <a href="{% url 'reports' %}" class="bg-greenlight hover:bg-greenlight/80 text-white px-4 py-2 md:px-6 md:py-3 rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-sm md:text-base">
-                    <i class="bi bi-graph-up"></i> <span class="hidden xs:inline">View Reports</span>
+                    <i class="fas fa-chart-line"></i> <span class="hidden xs:inline">View Reports</span>
                 </a>
             </div>
         </div>
     </div>
 
-    <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-6 md:mb-8 stats-grid">
+    <!-- Stats Cards - Original 5 cards restored -->
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-6 mb-6 md:mb-8 stats-grid">
         <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-sky/20 stat-card">
             <div class="flex justify-between items-center">
                 <div>
@@ -989,7 +1317,7 @@
                     <h2 class="text-xl md:text-3xl font-bold text-sky mt-1 md:mt-2" id="accidentsToday">0</h2>
                 </div>
                 <div class="bg-sky/20 p-2 md:p-3 rounded-lg">
-                    <i class="bi bi-car-front text-sky text-lg md:text-xl"></i>
+                    <i class="fas fa-car text-sky text-lg md:text-xl"></i>
                 </div>
             </div>
         </div>
@@ -1001,7 +1329,7 @@
                     <h2 class="text-xl md:text-3xl font-bold text-alert mt-1 md:mt-2 pulse-alert" id="pendingAlerts">0</h2>
                 </div>
                 <div class="bg-alert/20 p-2 md:p-3 rounded-lg">
-                    <i class="bi bi-exclamation-circle text-alert text-lg md:text-xl"></i>
+                    <i class="fas fa-exclamation-circle text-alert text-lg md:text-xl"></i>
                 </div>
             </div>
         </div>
@@ -1013,7 +1341,7 @@
                     <h2 class="text-xl md:text-3xl font-bold text-greenlight mt-1 md:mt-2" id="respondedCases">0</h2>
                 </div>
                 <div class="bg-greenlight/20 p-2 md:p-3 rounded-lg">
-                    <i class="bi bi-check-circle text-greenlight text-lg md:text-xl"></i>
+                    <i class="fas fa-check-circle text-greenlight text-lg md:text-xl"></i>
                 </div>
             </div>
         </div>
@@ -1021,86 +1349,40 @@
         <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-gold/20 stat-card">
             <div class="flex justify-between items-center">
                 <div>
-                    <p class="text-xs md:text-sm text-gray-400">Response Rate</p>
-                    <h2 class="text-xl md:text-3xl font-bold text-gold mt-1 md:mt-2" id="responseRate">0%</h2>
+                    <p class="text-xs md:text-sm text-gray-400">Total Detections</p>
+                    <h2 class="text-xl md:text-3xl font-bold text-gold mt-1 md:mt-2" id="totalDetections">0</h2>
                 </div>
                 <div class="bg-gold/20 p-2 md:p-3 rounded-lg">
-                    <i class="bi bi-bullseye text-gold text-lg md:text-xl"></i>
+                    <i class="fas fa-camera text-gold text-lg md:text-xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-[#1E293B] p-4 md:p-6 rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1 border border-sky/20 stat-card">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-xs md:text-sm text-gray-400">Response Rate</p>
+                    <h2 class="text-xl md:text-3xl font-bold text-sky mt-1 md:mt-2" id="responseRate">0%</h2>
+                </div>
+                <div class="bg-sky/20 p-2 md:p-3 rounded-lg">
+                    <i class="fas fa-bullseye text-sky text-lg md:text-xl"></i>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Admin Action Panel (Only for Admins) -->
-    {% if user.role == 'admin' %}
-    <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-sky/20 mb-6 md:mb-8">
-        <div class="p-4 md:p-6 border-b border-gray-600">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                    <i class="bi bi-eye text-sky"></i>
-                    <h3 class="text-lg md:text-xl font-bold">Admin Actions</h3>
-                    <span class="text-sm text-gray-400 hidden sm:inline">Review & Verify Incidents</span>
-                </div>
-                <button onclick="loadAdminActions()" class="text-sm bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded transition flex items-center gap-1">
-                    <i class="bi bi-arrow-clockwise"></i> Refresh
-                </button>
-            </div>
-        </div>
-        
-        <div class="p-4 md:p-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                <!-- Pending Review Card -->
-                <div class="bg-[#112240] rounded-lg p-4 border border-gold/30">
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="flex items-center gap-2">
-                            <i class="bi bi-clock-history text-gold"></i>
-                            <h4 class="font-semibold">Pending Review</h4>
-                        </div>
-                        <span id="pendingCount" class="bg-gold text-black text-xs px-2 py-1 rounded-full">0</span>
-                    </div>
-                    <div id="pendingList" class="space-y-3">
-                        <!-- Will be loaded via JavaScript -->
-                        <div class="text-center py-4 text-gray-500">
-                            <div class="animate-spin h-6 w-6 border-2 border-gold border-t-transparent rounded-full mx-auto mb-2"></div>
-                            <p class="text-sm">Loading...</p>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Recent Verifications Card -->
-                <div class="bg-[#112240] rounded-lg p-4 border border-greenlight/30">
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="flex items-center gap-2">
-                            <i class="bi bi-check-circle text-greenlight"></i>
-                            <h4 class="font-semibold">Recent Verifications</h4>
-                        </div>
-                        <span id="verifiedCount" class="bg-greenlight text-black text-xs px-2 py-1 rounded-full">0</span>
-                    </div>
-                    <div id="verifiedList" class="space-y-3">
-                        <!-- Will be loaded via JavaScript -->
-                        <div class="text-center py-4 text-gray-500">
-                            <div class="animate-spin h-6 w-6 border-2 border-greenlight border-t-transparent rounded-full mx-auto mb-2"></div>
-                            <p class="text-sm">Loading...</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- System Status and Performance Section -->
+    <!-- System Status and Quick Actions Section -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
         <!-- System Status Card -->
         <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-gray-600">
             <div class="p-4 md:p-6 border-b border-gray-600">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
-                        <i class="bi bi-heart-pulse text-sky"></i>
+                        <i class="fas fa-heart-pulse text-sky"></i>
                         <h3 class="text-lg md:text-xl font-bold">System Status</h3>
                     </div>
                     <span id="systemStatus" class="bg-greenlight/20 text-greenlight text-sm px-3 py-1 rounded-full flex items-center gap-1">
-                        <i id="statusIcon" class="bi bi-check-circle"></i>
+                        <i id="statusIcon" class="fas fa-check-circle"></i>
                         <span id="statusText">System Active</span>
                     </span>
                 </div>
@@ -1139,29 +1421,29 @@
         <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-gray-600">
             <div class="p-4 md:p-6 border-b border-gray-600">
                 <div class="flex items-center gap-2">
-                    <i class="bi bi-lightning-charge text-gold"></i>
+                    <i class="fas fa-bolt text-gold"></i>
                     <h3 class="text-lg md:text-xl font-bold">Quick Actions</h3>
                 </div>
             </div>
             <div class="p-4 md:p-6">
                 <div class="grid grid-cols-2 gap-3 md:gap-4 quick-actions-grid">
                     <a href="{% url 'cctv_monitoring' %}" class="bg-sky hover:bg-sky/80 text-white p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105 quick-action-btn">
-                        <i class="bi bi-camera-video text-xl md:text-2xl mb-1 md:mb-2"></i>
+                        <i class="fas fa-video text-xl md:text-2xl mb-1 md:mb-2"></i>
                         <div class="font-semibold text-sm md:text-base">Live CCTV</div>
                         <div class="text-xs md:text-sm opacity-80">Monitor Feeds</div>
                     </a>
                     <a href="{% url 'live_monitoring' %}" class="bg-alert hover:bg-alert/80 text-white p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105 quick-action-btn">
-                        <i class="bi bi-broadcast text-xl md:text-2xl mb-1 md:mb-2"></i>
+                        <i class="fas fa-broadcast-tower text-xl md:text-2xl mb-1 md:mb-2"></i>
                         <div class="font-semibold text-sm md:text-base">Live Detection</div>
                         <div class="text-xs md:text-sm opacity-80">Test System</div>
                     </a>
                     <a href="{% url 'reports' %}" class="bg-greenlight hover:bg-greenlight/80 text-white p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105 quick-action-btn">
-                        <i class="bi bi-graph-up text-xl md:text-2xl mb-1 md:mb-2"></i>
+                        <i class="fas fa-chart-line text-xl md:text-2xl mb-1 md:mb-2"></i>
                         <div class="font-semibold text-sm md:text-base">Reports</div>
                         <div class="text-xs md:text-sm opacity-80">View Analytics</div>
                     </a>
                     <button onclick="loadDashboardData()" class="bg-gold hover:bg-gold/80 text-gray-900 p-3 md:p-4 rounded-lg text-center transition transform hover:scale-105 quick-action-btn">
-                        <i class="bi bi-arrow-clockwise text-xl md:text-2xl mb-1 md:mb-2"></i>
+                        <i class="fas fa-sync-alt text-xl md:text-2xl mb-1 md:mb-2"></i>
                         <div class="font-semibold text-sm md:text-base">Refresh</div>
                         <div class="text-xs md:text-sm opacity-80">Update Data</div>
                     </button>
@@ -1171,17 +1453,20 @@
     </div>
 
     <!-- Alert Workflow Section -->
-    <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-gray-600">
+    <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-gray-600 mb-6 md:mb-8">
         <div class="p-4 md:p-6 border-b border-gray-600 flex items-center justify-between">
             <div class="flex items-center gap-2">
-                <i class="bi bi-diagram-3 text-sky"></i>
-                <h3 class="text-lg md:text-xl font-bold">Your Alert Workflow</h3>
+                <i class="fas fa-diagram-project text-sky"></i>
+                <h3 class="text-lg md:text-xl font-bold">Alert Workflow</h3>
                 <span class="text-sm text-gray-400">({{ user.role|title }} View)</span>
+                {% if user.role == 'admin' %}
+                <span class="text-xs bg-sky/20 text-sky px-2 py-1 rounded ml-2">Review in-line • Re-review available</span>
+                {% endif %}
             </div>
             <div class="flex items-center gap-2">
                 <span class="text-xs text-gray-400 hidden sm:inline">Real-time updates</span>
                 <button onclick="loadDashboardData()" class="text-xs md:text-sm bg-sky hover:bg-sky/80 text-white px-2 md:px-3 py-1 md:py-1 rounded transition flex items-center gap-1">
-                    <i class="bi bi-arrow-clockwise"></i> <span class="hidden sm:inline">Refresh</span>
+                    <i class="fas fa-sync-alt"></i> <span class="hidden sm:inline">Refresh</span>
                 </button>
             </div>
         </div>
@@ -1194,15 +1479,15 @@
                         <th class="py-3 px-4">Alert Time</th>
                         <th class="py-3 px-4">Camera</th>
                         <th class="py-3 px-4">Assigned To</th>
-                        <th class="py-3 px-4">Priority</th>
-                        <th class="py-3 px-4">Status</th>
+                        <th class="py-3 px-4">Alert Status</th>
+                        <th class="py-3 px-4">Incident Status</th>
                         <th class="py-3 px-4 text-right">Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
                         <td colspan="6" class="py-8 text-center text-gray-500">
-                            <i class="bi bi-arrow-repeat text-2xl mb-2 animate-spin"></i><br>
+                            <div class="loading-spinner mx-auto mb-2"></div>
                             Loading your alerts...
                         </td>
                     </tr>
@@ -1212,344 +1497,90 @@
 
         <!-- Mobile Card View -->
         <div class="md:hidden p-4" id="mobileAlertsView">
-            <div class="text-center py-8 text-gray-500">
-                <i class="bi bi-arrow-repeat text-2xl mb-2 animate-spin"></i>
-                <p>Loading your alerts...</p>
-            </div>
+            <!-- Mobile view would go here -->
         </div>
         
         <!-- Workflow Legend -->
-                            <div class="p-4 border-t border-gray-600 bg-[#112240]">
-                            <div class="flex flex-wrap gap-3 md:gap-4 justify-center text-xs md:text-sm">
-                                <div class="flex items-center gap-1">
-                                    <div class="w-3 h-3 rounded-full bg-alert"></div>
-                                    <span>Unacknowledged - Immediate Action</span>
-                                </div>
-                                <div class="flex items-center gap-1">
-                                    <div class="w-3 h-3 rounded-full bg-gold"></div>
-                                    <span>Acknowledged - Response Pending</span>
-                                </div>
-                                <div class="flex items-center gap-1">
-                                    <div class="w-3 h-3 rounded-full bg-greenlight"></div>
-                                    <span>Completed - Case Closed</span>
-                                </div>
-                                {% if user.role == 'admin' %}
-                                <div class="flex items-center gap-1">
-                                    <div class="w-3 h-3 rounded-full bg-sky"></div>
-                                    <span>Admin Review Required</span>
-                                </div>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
+        <div class="p-4 border-t border-gray-600 bg-[#112240]">
+            <div class="flex flex-wrap gap-3 md:gap-4 justify-center text-xs md:text-sm">
+                <div class="flex items-center gap-1">
+                    <div class="w-3 h-3 rounded-full bg-alert"></div>
+                    <span>Unacknowledged</span>
                 </div>
-
-                <!-- User Info Panel -->
-                <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-gray-600 mt-6 md:mt-8">
-                    <div class="p-4 md:p-6 border-b border-gray-600">
-                        <div class="flex items-center gap-3">
-                            <div class="bg-sky/20 p-2 md:p-3 rounded-lg">
-                                <i class="bi bi-person-circle text-sky text-xl md:text-2xl"></i>
-                            </div>
-                            <div>
-                                <h3 class="text-lg md:text-xl font-bold">User Information</h3>
-                                <p class="text-sm text-gray-400">Your role and system access</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="p-4 md:p-6">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                            <div class="space-y-3">
-                                <div>
-                                    <p class="text-sm text-gray-400">Full Name</p>
-                                    <p class="text-base md:text-lg font-semibold">{{ user.first_name }} {{ user.last_name }}</p>
-                                </div>
-                                <div>
-                                    <p class="text-sm text-gray-400">Role</p>
-                                    <p class="text-base md:text-lg">
-                                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded 
-                                            {% if user.role == 'admin' %}bg-sky/20 text-sky
-                                            {% elif user.role == 'tanod' %}bg-greenlight/20 text-greenlight
-                                            {% else %}bg-gray-600 text-gray-300{% endif %}">
-                                            <i class="bi 
-                                                {% if user.role == 'admin' %}bi-shield-check
-                                                {% elif user.role == 'tanod' %}bi-shield-exclamation
-                                                {% else %}bi-person{% endif %}"></i>
-                                            {{ user.role|title }}
-                                        </span>
-                                    </p>
-                                </div>
-                            </div>
-                            <div class="space-y-3">
-                                <div>
-                                    <p class="text-sm text-gray-400">Account Status</p>
-                                    <p class="text-base md:text-lg font-semibold text-greenlight flex items-center gap-1">
-                                        <i class="bi bi-check-circle"></i> Active
-                                    </p>
-                                </div>
-                                <div>
-                                    <p class="text-sm text-gray-400">Dashboard Type</p>
-                                    <p class="text-base md:text-lg">
-                                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky/20 text-sky">
-                                            <i class="bi bi-layout-text-window"></i>
-                                            {% if user.role == 'admin' %}Administrator Dashboard
-                                            {% elif user.role == 'tanod' %}Tanod Response Dashboard
-                                            {% else %}Standard Dashboard{% endif %}
-                                        </span>
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="mt-4 md:mt-6 pt-4 border-t border-gray-600">
-                            <p class="text-sm text-gray-400 mb-2">Your Permissions:</p>
-                            <div class="flex flex-wrap gap-2">
-                                {% if user.role == 'admin' %}
-                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky/20 text-sky text-xs">
-                                    <i class="bi bi-eye"></i> Review Accidents
-                                </span>
-                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky/20 text-sky text-xs">
-                                    <i class="bi bi-check-circle"></i> Verify Detections
-                                </span>
-                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky/20 text-sky text-xs">
-                                    <i class="bi bi-bar-chart"></i> View Analytics
-                                </span>
-                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky/20 text-sky text-xs">
-                                    <i class="bi bi-gear"></i> System Settings
-                                </span>
-                                {% elif user.role == 'tanod' %}
-                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-greenlight/20 text-greenlight text-xs">
-                                    <i class="bi bi-bell"></i> Receive Alerts
-                                </span>
-                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-greenlight/20 text-greenlight text-xs">
-                                    <i class="bi bi-check-circle"></i> Acknowledge Alerts
-                                </span>
-                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-greenlight/20 text-greenlight text-xs">
-                                    <i class="bi bi-clock-history"></i> View History
-                                </span>
-                                {% else %}
-                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-600 text-gray-300 text-xs">
-                                    <i class="bi bi-eye"></i> View Only
-                                </span>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
+                <div class="flex items-center gap-1">
+                    <div class="w-3 h-3 rounded-full bg-gold"></div>
+                    <span>Acknowledged</span>
                 </div>
-
-                <!-- Recent Activity Timeline (Simplified for mobile) -->
-                <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-gray-600 mt-6 md:mt-8">
-                    <div class="p-4 md:p-6 border-b border-gray-600">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <i class="bi bi-clock-history text-sky"></i>
-                                <h3 class="text-lg md:text-xl font-bold">Recent System Activity</h3>
-                            </div>
-                            <span class="text-xs text-gray-400 hidden sm:inline">Last 24 hours</span>
-                        </div>
-                    </div>
-                    <div class="p-4 md:p-6">
-                        <div class="relative">
-                            <!-- Timeline line -->
-                            <div class="absolute left-4 md:left-5 top-0 bottom-0 w-0.5 bg-gray-600"></div>
-                            
-                            <div class="space-y-4 pl-8 md:pl-10">
-                                <!-- Timeline items will be loaded via JavaScript -->
-                                <div id="timelineItems" class="space-y-4">
-                                    <!-- Example timeline item -->
-                                    <div class="relative fade-in">
-                                        <div class="absolute -left-9 md:-left-10 top-1 w-4 h-4 md:w-5 md:h-5 rounded-full border-2 border-sky bg-[#1E293B]"></div>
-                                        <div class="bg-[#112240] rounded-lg p-3 md:p-4 border border-gray-600">
-                                            <div class="flex items-start justify-between">
-                                                <div>
-                                                    <p class="font-medium text-sm md:text-base">System Initialized</p>
-                                                    <p class="text-xs md:text-sm text-gray-400">Dashboard loaded successfully</p>
-                                                </div>
-                                                <span class="text-xs text-gray-400">Just now</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- Loading state for real data -->
-                                    <div id="activityLoading" class="text-center py-4 text-gray-500">
-                                        <div class="animate-spin h-6 w-6 border-2 border-sky border-t-transparent rounded-full mx-auto mb-2"></div>
-                                        <p class="text-sm">Loading recent activity...</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Refresh activity button -->
-                        <div class="mt-4 pt-4 border-t border-gray-600 text-center">
-                            <button onclick="loadRecentActivity()" class="text-sm bg-sky hover:bg-sky/80 text-white px-4 py-2 rounded transition flex items-center gap-1 mx-auto">
-                                <i class="bi bi-arrow-clockwise"></i> Load Recent Activity
-                            </button>
-                        </div>
-                    </div>
+                <div class="flex items-center gap-1">
+                    <div class="w-3 h-3 rounded-full bg-greenlight"></div>
+                    <span>Resolved</span>
                 </div>
-            </div>
-
-            <!-- Footer note -->
-            <div class="mt-6 md:mt-8 text-center text-xs text-gray-500">
-                <p>DisgrasEye Dashboard • Real-time updates enabled • Auto-refresh every 30 seconds</p>
-                <p class="mt-1">Last full sync: <span id="fullSyncTime">--:--:--</span></p>
+                {% if user.role == 'admin' %}
+                <div class="flex items-center gap-1">
+                    <div class="w-3 h-3 rounded-full bg-sky"></div>
+                    <span class="text-sky">Pending Review</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <div class="w-3 h-3 rounded-full bg-gold"></div>
+                    <span class="text-gold">Re-review available</span>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
-</div>
 
-<script>
-// Additional JavaScript for timeline and user-specific features
-
-async function loadRecentActivity() {
-    try {
-        const supabaseClient = getSupabaseClient();
-        const userId = {{ user.user_id }};
-        const userRole = "{{ user.role }}";
-        
-        // Get user-specific activity
-        const { data: alerts, error: alertsError } = await supabaseClient
-            .from('alerts')
-            .select(`
-                alert_time,
-                message,
-                response_status,
-                accident_detections: detection_id (
-                    detection_time,
-                    camera_id
-                )
-            `)
-            .eq('sent_to', userId)
-            .order('alert_time', { ascending: false })
-            .limit(10);
-        
-        if (alertsError) throw alertsError;
-        
-        // Get system activity (admin only)
-        let systemActivity = [];
-        if (userRole === 'admin') {
-            const { data: accidents, error: accidentsError } = await supabaseClient
-                .from('accident_detections')
-                .select(`
-                    detection_time,
-                    status,
-                    camera_id
-                `)
-                .order('detection_time', { ascending: false })
-                .limit(5);
-            
-            if (!accidentsError) {
-                systemActivity = accidents || [];
-            }
-        }
-        
-        // Combine and sort activities
-        const allActivities = [
-            ...alerts.map(a => ({
-                type: 'alert',
-                time: a.alert_time,
-                message: a.message,
-                status: a.response_status,
-                camera: a.accident_detections?.camera_id
-            })),
-            ...systemActivity.map(a => ({
-                type: 'system',
-                time: a.detection_time,
-                message: `Accident ${a.status}`,
-                status: a.status,
-                camera: a.camera_id
-            }))
-        ].sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 10);
-        
-        // Update timeline
-        updateTimeline(allActivities);
-        
-        // Update sync time
-        document.getElementById('fullSyncTime').textContent = new Date().toLocaleTimeString();
-        
-    } catch (error) {
-        console.error('Error loading recent activity:', error);
-    }
-}
-
-function updateTimeline(activities) {
-    const timelineContainer = document.getElementById('timelineItems');
-    const loadingElement = document.getElementById('activityLoading');
-    
-    if (!timelineContainer) return;
-    
-    if (loadingElement) {
-        loadingElement.remove();
-    }
-    
-    if (activities.length === 0) {
-        timelineContainer.innerHTML = `
-            <div class="text-center py-4 text-gray-500">
-                <i class="bi bi-inbox text-2xl mb-2"></i>
-                <p class="text-sm">No recent activity found</p>
-            </div>
-        `;
-        return;
-    }
-    
-    timelineContainer.innerHTML = activities.map((activity, index) => {
-        const time = new Date(activity.time);
-        const timeAgo = getTimeAgo(time);
-        const icon = activity.type === 'alert' ? 
-            (activity.status === 'Unacknowledged' ? 'bi-bell' : 
-             activity.status === 'Acknowledged' ? 'bi-bell-check' : 'bi-bell-slash') :
-            (activity.status === 'Verified' ? 'bi-check-circle' : 
-             activity.status === 'False Alarm' ? 'bi-x-circle' : 'bi-clock');
-        
-        const iconColor = activity.type === 'alert' ?
-            (activity.status === 'Unacknowledged' ? 'text-alert' :
-             activity.status === 'Acknowledged' ? 'text-gold' : 'text-gray-400') :
-            (activity.status === 'Verified' ? 'text-greenlight' :
-             activity.status === 'False Alarm' ? 'text-alert' : 'text-gold');
-        
-        return `
-            <div class="relative fade-in" style="animation-delay: ${index * 50}ms">
-                <div class="absolute -left-9 md:-left-10 top-1 w-4 h-4 md:w-5 md:h-5 rounded-full border-2 ${iconColor.replace('text-', 'border-')} bg-[#1E293B] flex items-center justify-center">
-                    <i class="bi ${icon} text-xs ${iconColor}"></i>
+    <!-- User Information Panel -->
+    <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-gray-600">
+        <div class="p-4 md:p-6 border-b border-gray-600">
+            <div class="flex items-center gap-3">
+                <div class="bg-sky/20 p-2 md:p-3 rounded-lg">
+                    <i class="fas fa-user-circle text-sky text-xl md:text-2xl"></i>
                 </div>
-                <div class="bg-[#112240] rounded-lg p-3 md:p-4 border border-gray-600">
-                    <div class="flex items-start justify-between">
-                        <div class="flex-1">
-                            <p class="font-medium text-sm md:text-base">${activity.message}</p>
-                            ${activity.camera ? `
-                            <p class="text-xs md:text-sm text-gray-400 mt-1">
-                                <i class="bi bi-camera-video"></i> Camera ${activity.camera}
-                            </p>
-                            ` : ''}
-                        </div>
-                        <span class="text-xs text-gray-400 ml-2 whitespace-nowrap">${timeAgo}</span>
+                <div>
+                    <h3 class="text-lg md:text-xl font-bold">User Information</h3>
+                    <p class="text-sm text-gray-400">Your role and system access</p>
+                </div>
+            </div>
+        </div>
+        <div class="p-4 md:p-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                <div class="space-y-3">
+                    <div>
+                        <p class="text-sm text-gray-400">Name</p>
+                        <p class="text-base md:text-lg font-semibold">{{ user.first_name }} {{ user.last_name }}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-400">Email</p>
+                        <p class="text-base md:text-lg">{{ user.email }}</p>
+                    </div>
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <p class="text-sm text-gray-400">Role</p>
+                        <p class="text-base md:text-lg">
+                            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full 
+                                {% if user.role == 'admin' %}bg-sky/20 text-sky
+                                {% else %}bg-greenlight/20 text-greenlight{% endif %}">
+                                <i class="fas {% if user.role == 'admin' %}fa-shield{% else %}fa-user{% endif %}"></i>
+                                {{ user.role|title }}
+                            </span>
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-400">Account Status</p>
+                        <p class="text-base md:text-lg font-semibold text-greenlight flex items-center gap-1">
+                            <i class="fas fa-check-circle"></i> Active
+                        </p>
                     </div>
                 </div>
             </div>
-        `;
-    }).join('');
-}
+        </div>
+    </div>
 
-function getTimeAgo(date) {
-    const seconds = Math.floor((new Date() - date) / 1000);
-    
-    if (seconds < 60) return 'Just now';
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-    return `${Math.floor(seconds / 86400)}d ago`;
-}
-
-// Initialize timeline on page load
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(() => {
-        loadRecentActivity();
-    }, 1000);
-    
-    // Update sync time initially
-    document.getElementById('fullSyncTime').textContent = new Date().toLocaleTimeString();
-});
-
-// Make timeline function available globally
-window.loadRecentActivity = loadRecentActivity;
-</script>
+    <!-- Footer note -->
+    <div class="mt-6 md:mt-8 text-center text-xs text-gray-500">
+        <p>DisgrasEye Dashboard • Real-time updates enabled • Auto-refresh every 30 seconds</p>
+        <p class="mt-1">Check the "Alert Workflow" table above for pending reviews • Gold "Re-review" button appears if you need to change a decision</p>
+    </div>
+</div>
 {% endblock %}
