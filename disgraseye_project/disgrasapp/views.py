@@ -626,6 +626,8 @@ def generate_camera_frames(camera_id, rtsp_url):
     cap = cv2.VideoCapture(rtsp_url)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     
+    print(f"📹 Camera {camera_id} - Stream started, AI is OFF by default")
+    
     while active_camera_streams.get(camera_id, {}).get('active', False):
         try:
             ret, frame = cap.read()
@@ -636,25 +638,42 @@ def generate_camera_frames(camera_id, rtsp_url):
             
             # Resize for performance
             frame = cv2.resize(frame, (640, 480))
+            display_frame = frame.copy()  # Frame to display (may be annotated)
             
-            # If AI is enabled, process with YOLO
-            if active_camera_streams.get(camera_id, {}).get('ai_enabled', False):
-                results = model(frame, imgsz=320, conf=0.5, verbose=False)
+            # Check if AI is enabled for this camera
+            ai_enabled = active_camera_streams.get(camera_id, {}).get('ai_enabled', False)
+            
+            # ONLY run AI if explicitly enabled
+            if ai_enabled:
+                # Run YOLO detection on a smaller frame for speed
+                small_frame = cv2.resize(frame, (320, 240))
+                results = model(small_frame, imgsz=320, conf=0.5, verbose=False)
                 
                 # Check for crashes
-                crash_detected = any(
-                    any(keyword in model.names[int(box.cls[0])].lower() for keyword in ['crash', 'accident'])
-                    for result in results if result.boxes is not None
-                    for box in result.boxes
-                )
-                
-                # Annotate frame if crash detected
-                if crash_detected:
-                    annotated_frame = results[0].plot()
-                    # Add crash alert text
-                    cv2.putText(annotated_frame, "🚨 CRASH DETECTED!", (10, 30),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                    frame = annotated_frame
+                crash_detected = False
+                if results and results[0].boxes is not None:
+                    for box in results[0].boxes:
+                        class_id = int(box.cls[0])
+                        class_name = model.names[class_id]
+                        if any(keyword in class_name.lower() for keyword in ['crash', 'accident']):
+                            crash_detected = True
+                            break
+                    
+                    # Scale boxes back to original frame size
+                    if crash_detected:
+                        scale_x = frame.shape[1] / 320
+                        scale_y = frame.shape[0] / 240
+                        
+                        for box in results[0].boxes:
+                            x1, y1, x2, y2 = box.xyxy[0].tolist()
+                            # Scale coordinates
+                            x1, x2 = int(x1 * scale_x), int(x2 * scale_x)
+                            y1, y2 = int(y1 * scale_y), int(y2 * scale_y)
+                            
+                            # Draw bounding box on display frame
+                            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                            cv2.putText(display_frame, "🚨 CRASH", (x1, y1-10),
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
                 
                 # Update detection status
                 with stream_lock:
@@ -663,9 +682,20 @@ def generate_camera_frames(camera_id, rtsp_url):
                             'crash_detected': crash_detected,
                             'timestamp': time.time()
                         }
+                
+                # Add AI status text
+                status_text = "🚨 CRASH DETECTED!" if crash_detected else "🤖 AI ACTIVE"
+                status_color = (0, 0, 255) if crash_detected else (0, 255, 0)
+                cv2.putText(display_frame, status_text, (10, 30),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+            else:
+                # AI is OFF - just show plain video
+                # Optional: add a small "AI OFF" indicator
+                cv2.putText(display_frame, "⚫ AI OFF", (10, 30),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128, 128, 128), 1)
             
             # Encode frame to JPEG
-            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            ret, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ret:
                 frame_bytes = buffer.tobytes()
                 yield (b'--frame\r\n'
@@ -703,31 +733,37 @@ def camera_stream(request, camera_id):
 def start_camera_stream(request):
     """Start video stream for a camera"""
     if request.method == 'POST':
-        data = json.loads(request.body)
-        camera_id = data.get('camera_id')
-        rtsp_url = data.get('rtsp_url')
-        camera_name = data.get('camera_name', 'Camera')
-        
-        with stream_lock:
-            if camera_id in active_camera_streams:
-                return JsonResponse({'error': 'Camera stream already running'}, status=400)
+        try:
+            data = json.loads(request.body)
+            camera_id = data.get('camera_id')
+            rtsp_url = data.get('rtsp_url')
+            camera_name = data.get('camera_name', 'Camera')
             
-            # Start camera stream
-            active_camera_streams[camera_id] = {
-                'rtsp_url': rtsp_url,
-                'camera_name': camera_name,
-                'active': True,
-                'ai_enabled': False,
-                'last_detection': None
-            }
-            
-            print(f"🎥 Started stream for {camera_name} ({camera_id})")
-            
-            return JsonResponse({
-                'status': 'success',
-                'message': f'Stream started for {camera_name}',
-                'stream_url': f'/camera-stream/{camera_id}/'
-            })
+            with stream_lock:
+                if camera_id in active_camera_streams:
+                    return JsonResponse({'error': 'Camera stream already running'}, status=400)
+                
+                # Start camera stream with AI explicitly OFF
+                active_camera_streams[camera_id] = {
+                    'rtsp_url': rtsp_url,
+                    'camera_name': camera_name,
+                    'active': True,
+                    'ai_enabled': False,  # ← Explicitly set to False
+                    'last_detection': None
+                }
+                
+                print(f"🎥 Started stream for {camera_name} ({camera_id}) - AI: OFF")
+                
+                return JsonResponse({
+                    'status': 'success',
+                    'message': f'Stream started for {camera_name}',
+                    'stream_url': f'/camera-stream/{camera_id}/'
+                })
+                
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)
+    
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 @login_required
 def stop_camera_stream(request):
@@ -786,3 +822,4 @@ def reports(request):
         'SUPABASE_URL': settings.SUPABASE_URL,
         'SUPABASE_ANON_KEY': settings.SUPABASE_ANON_KEY,
     })
+

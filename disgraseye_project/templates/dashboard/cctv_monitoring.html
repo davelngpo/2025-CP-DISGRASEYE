@@ -26,7 +26,7 @@
         position: absolute;
         top: 10px;
         right: 10px;
-        background: rgba(0, 0, 0, 0.7);
+        background: rgba(0,0,0,0.7);
         color: white;
         padding: 4px 8px;
         border-radius: 4px;
@@ -37,45 +37,31 @@
         position: absolute;
         top: 10px;
         left: 10px;
-        background: rgba(0, 0, 0, 0.7);
+        background: rgba(0,0,0,0.7);
         color: white;
         padding: 4px 8px;
         border-radius: 4px;
         font-size: 12px;
         z-index: 10;
     }
-    .ai-active {
-        background: rgba(34, 197, 94, 0.8);
-    }
-    .ai-inactive {
-        background: rgba(107, 114, 128, 0.8);
-    }
-    .status-active {
-        background: rgba(34, 197, 94, 0.8);
-    }
-    .status-offline {
-        background: rgba(239, 68, 68, 0.8);
-    }
-    .status-maintenance {
-        background: rgba(251, 191, 36, 0.8);
-    }
-    
-    /* Modal Styles */
+    .ai-active      { background: rgba(34, 197, 94, 0.85) !important; }
+    .ai-inactive    { background: rgba(107, 114, 128, 0.8) !important; }
+    .status-active  { background: rgba(34, 197, 94, 0.85) !important; }
+    .status-offline { background: rgba(239, 68, 68, 0.85) !important; }
+    .status-maintenance { background: rgba(251, 191, 36, 0.85) !important; }
+
+    /* Modal */
     .modal-overlay {
         display: none;
         position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.7);
+        inset: 0;
+        background: rgba(0,0,0,0.7);
         z-index: 1000;
         backdrop-filter: blur(5px);
     }
     .modal-content {
         position: absolute;
-        top: 50%;
-        left: 50%;
+        top: 50%; left: 50%;
         transform: translate(-50%, -50%);
         background: #1E293B;
         border: 2px solid #334155;
@@ -86,29 +72,29 @@
         max-height: 90vh;
         overflow-y: auto;
     }
-    
-    /* Fullscreen styles */
+
+    /* Fullscreen */
     #fullscreen-container {
         position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
+        inset: 0;
         background: black;
         z-index: 9999;
         display: none;
+        align-items: center;
+        justify-content: center;
     }
-    #fullscreen-video {
+    #fullscreen-img {
         width: 100%;
         height: 100%;
         object-fit: contain;
+        display: block;
     }
     #fullscreen-controls {
         position: fixed;
         bottom: 20px;
         left: 50%;
         transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.8);
+        background: rgba(0,0,0,0.8);
         padding: 10px 20px;
         border-radius: 25px;
         z-index: 10000;
@@ -116,8 +102,21 @@
         gap: 10px;
         backdrop-filter: blur(10px);
     }
-    
-    /* Global controls */
+    #fullscreen-label {
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.8);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        z-index: 10000;
+        font-size: 14px;
+        backdrop-filter: blur(10px);
+    }
+
+    /* Global controls bar */
     .global-controls {
         background: #1E293B;
         border: 2px solid #334155;
@@ -125,23 +124,52 @@
         padding: 1.5rem;
         margin-bottom: 2rem;
     }
-    
-    /* Loading animation */
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
+
+    /* Camera viewport (16:9 aspect ratio box) */
+    .camera-viewport {
+        position: relative;
+        width: 100%;
+        padding-top: 56.25%;
+        background: #0f172a;
+        overflow: hidden;
     }
-    .loading {
-        animation: pulse 1.5s ease-in-out infinite;
+    .camera-viewport > * {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
     }
-    
-    /* Status indicators */
-    .status-dot {
-        display: inline-block;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        margin-right: 6px;
+    .camera-img {
+        object-fit: cover;
+        display: none;
+    }
+    .camera-placeholder {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        text-align: center;
+        gap: 4px;
+        padding: 1rem;
+    }
+    .camera-loading {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.6);
+        z-index: 5;
+    }
+    .camera-reconnect {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        background: rgba(0,0,0,0.75);
+        z-index: 6;
+        gap: 8px;
+        color: #fbbf24;
+        font-size: 13px;
     }
 </style>
 {% endblock %}
@@ -163,17 +191,21 @@
             </h3>
             <p class="text-sm text-gray-400">Manage all cameras at once</p>
         </div>
-        <div class="flex flex-wrap gap-4">
-            <button onclick="startAllStreams()" class="bg-sky hover:bg-sky/80 text-white px-6 py-3 rounded-lg transition flex items-center gap-2 font-semibold">
+        <div class="flex flex-wrap gap-3">
+            <button onclick="startAllStreams()"
+                class="bg-sky hover:bg-sky/80 text-white px-5 py-2.5 rounded-lg transition flex items-center gap-2 font-semibold text-sm">
                 <i class="bi bi-play-circle"></i> Start All Streams
             </button>
-            <button onclick="stopAllStreams()" class="bg-alert hover:bg-red-700 text-white px-6 py-3 rounded-lg transition flex items-center gap-2 font-semibold">
+            <button onclick="stopAllStreams()"
+                class="bg-alert hover:bg-red-700 text-white px-5 py-2.5 rounded-lg transition flex items-center gap-2 font-semibold text-sm">
                 <i class="bi bi-stop-circle"></i> Stop All Streams
             </button>
-            <button onclick="startAllAI()" class="bg-greenlight hover:bg-green-600 text-white px-6 py-3 rounded-lg transition flex items-center gap-2 font-semibold">
+            <button onclick="startAllAI()"
+                class="bg-greenlight hover:bg-green-600 text-white px-5 py-2.5 rounded-lg transition flex items-center gap-2 font-semibold text-sm">
                 <i class="bi bi-cpu"></i> Start All AI
             </button>
-            <button onclick="stopAllAI()" class="bg-gold hover:bg-yellow-600 text-gray-900 px-6 py-3 rounded-lg transition flex items-center gap-2 font-semibold">
+            <button onclick="stopAllAI()"
+                class="bg-gold hover:bg-yellow-600 text-gray-900 px-5 py-2.5 rounded-lg transition flex items-center gap-2 font-semibold text-sm">
                 <i class="bi bi-pause-circle"></i> Stop All AI
             </button>
         </div>
@@ -182,84 +214,81 @@
 
 <!-- Camera Grid -->
 <div class="camera-grid mb-8" id="camerasGrid">
-    <!-- Cameras will be loaded dynamically from database -->
-    <div class="text-center py-12">
+    <div class="text-center py-12 col-span-full">
         <div class="animate-spin h-8 w-8 border-2 border-sky border-t-transparent rounded-full mx-auto mb-4"></div>
-        <p class="text-gray-400">Loading cameras from database...</p>
+        <p class="text-gray-400">Loading cameras from database…</p>
     </div>
 </div>
 
-<!-- Configuration Modal -->
+<!-- Config Modal -->
 <div id="configModal" class="modal-overlay">
     <div class="modal-content">
-        <div class="modal-header mb-4">
+        <div class="flex justify-between items-center mb-4">
             <h3 class="text-xl font-bold text-white" id="configTitle">Configure Camera</h3>
-            <button onclick="closeConfigModal()" class="text-gray-400 hover:text-white text-2xl">
-                &times;
-            </button>
+            <button onclick="closeConfigModal()" class="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
         </div>
-        
         <div class="space-y-4">
             <div>
-                <label class="block text-sm text-gray-400 mb-2">Location Name</label>
-                <input type="text" id="configLocationName" 
-                       class="w-full px-3 py-2 bg-darkbg rounded-lg border border-gray-600 text-white focus:border-sky focus:ring-1 focus:ring-sky transition"
-                       placeholder="Enter location name">
+                <label class="block text-sm text-gray-400 mb-1">Location Name</label>
+                <input type="text" id="configLocationName"
+                    class="w-full px-3 py-2 bg-darkbg rounded-lg border border-gray-600 text-white focus:border-sky focus:outline-none transition"
+                    placeholder="e.g. Main Entrance">
             </div>
-            
             <div>
-                <label class="block text-sm text-gray-400 mb-2">IP Address / RTSP URL</label>
-                <input type="text" id="configIpAddress" 
-                       class="w-full px-3 py-2 bg-darkbg rounded-lg border border-gray-600 text-white focus:border-sky focus:ring-1 focus:ring-sky transition"
-                       placeholder="rtsp://ip:port/stream">
-                
-                <div class="mt-3 p-3 bg-darkbg rounded-lg border border-gray-600">
-                    <p class="text-sm text-gray-400 mb-2">Common RTSP Formats:</p>
-                    <ul class="text-xs text-gray-500 space-y-1">
-                        <li>• <code class="bg-black px-1 rounded">rtsp://192.168.1.100:554/stream</code></li>
-                        <li>• <code class="bg-black px-1 rounded">http://192.168.1.100:8080/video</code></li>
-                        <li>• <code class="bg-black px-1 rounded">rtsp://username:password@ip:port/stream</code></li>
-                    </ul>
+                <label class="block text-sm text-gray-400 mb-1">IP Address / RTSP URL</label>
+                <input type="text" id="configIpAddress"
+                    class="w-full px-3 py-2 bg-darkbg rounded-lg border border-gray-600 text-white focus:border-sky focus:outline-none transition"
+                    placeholder="rtsp://192.168.1.100:554/stream">
+                <div class="mt-2 p-3 bg-darkbg rounded-lg border border-gray-700 text-xs text-gray-500 space-y-1">
+                    <p class="text-gray-400 font-medium mb-1">Common formats:</p>
+                    <p>• <code class="bg-black px-1 rounded">rtsp://192.168.1.100:554/stream</code></p>
+                    <p>• <code class="bg-black px-1 rounded">http://192.168.1.100:8080/video</code></p>
+                    <p>• <code class="bg-black px-1 rounded">rtsp://user:pass@ip:port/stream</code></p>
                 </div>
             </div>
-            
             <div>
-                <label class="block text-sm text-gray-400 mb-2">Status</label>
-                <select id="configStatus" 
-                        class="w-full px-3 py-2 bg-darkbg rounded-lg border border-gray-600 text-white focus:border-sky focus:ring-1 focus:ring-sky transition">
+                <label class="block text-sm text-gray-400 mb-1">Status</label>
+                <select id="configStatus"
+                    class="w-full px-3 py-2 bg-darkbg rounded-lg border border-gray-600 text-white focus:border-sky focus:outline-none transition">
                     <option value="Active">Active</option>
                     <option value="Offline">Offline</option>
                     <option value="Maintenance">Maintenance</option>
                 </select>
             </div>
-            
-            <div class="flex gap-3 mt-6">
-                <button onclick="saveCameraConfig()" class="flex-1 bg-sky hover:bg-sky/80 text-white py-3 rounded-lg transition font-semibold">
-                    <i class="bi bi-check-lg mr-2"></i> Save Configuration
+            <div class="flex gap-3 pt-2">
+                <button onclick="saveCameraConfig()"
+                    class="flex-1 bg-sky hover:bg-sky/80 text-white py-2.5 rounded-lg transition font-semibold text-sm">
+                    <i class="bi bi-check-lg mr-1"></i> Save
                 </button>
-                <button onclick="deleteCamera()" id="deleteCameraBtn" class="flex-1 bg-alert hover:bg-red-700 text-white py-3 rounded-lg transition font-semibold hidden">
-                    <i class="bi bi-trash mr-2"></i> Delete Camera
+                <button onclick="deleteCamera()" id="deleteCameraBtn"
+                    class="flex-1 bg-alert hover:bg-red-700 text-white py-2.5 rounded-lg transition font-semibold text-sm hidden">
+                    <i class="bi bi-trash mr-1"></i> Delete
                 </button>
-                <button onclick="closeConfigModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-3 rounded-lg transition font-semibold">
-                    <i class="bi bi-x-lg mr-2"></i> Cancel
+                <button onclick="closeConfigModal()"
+                    class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2.5 rounded-lg transition font-semibold text-sm">
+                    <i class="bi bi-x-lg mr-1"></i> Cancel
                 </button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Add Camera Button -->
+<!-- Add Camera FAB -->
 <div class="fixed bottom-6 right-6 z-50">
-    <button onclick="openAddCameraModal()" class="bg-greenlight hover:bg-green-600 text-white p-4 rounded-full shadow-lg transition transform hover:scale-110">
+    <button onclick="openAddCameraModal()"
+        class="bg-greenlight hover:bg-green-600 text-white p-4 rounded-full shadow-lg transition transform hover:scale-110"
+        title="Add Camera">
         <i class="bi bi-plus-lg text-2xl"></i>
     </button>
 </div>
 
-<!-- Fullscreen Container -->
+<!-- Fullscreen overlay -->
 <div id="fullscreen-container">
-    <img id="fullscreen-video" src="" alt="Fullscreen Video">
+    <span id="fullscreen-label"></span>
+    <img id="fullscreen-img" src="" alt="Fullscreen camera stream">
     <div id="fullscreen-controls">
-        <button onclick="exitFullscreen()" class="bg-alert hover:bg-red-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2">
+        <button onclick="exitFullscreen()"
+            class="bg-alert hover:bg-red-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2">
             <i class="bi bi-fullscreen-exit"></i> Exit Fullscreen
         </button>
     </div>
@@ -268,142 +297,490 @@
 
 {% block extra_scripts %}
 <script>
-// Global variables
-let cctvSupabase = null;
-let cameraConfigs = {};
-let currentConfigCamera = null;
+// ─── State ────────────────────────────────────────────────────────────────────
+let cctvSupabase          = null;
+let cameraConfigs         = {};      // { [string(cameraId)]: config }
+let currentConfigCamera   = null;
+let isEditing             = false;
 let currentFullscreenCamera = null;
-let isEditing = false;
+const streamPollers       = {};      // reconnect timers
 
-// Initialize Supabase client
+// ─── Supabase ─────────────────────────────────────────────────────────────────
 function getSupabaseClient() {
     if (!cctvSupabase) {
-        // Try to get from window (set by base.html)
-        if (window._supabase) {
-            cctvSupabase = window._supabase;
-        } else {
-            // Initialize directly if needed
-            const supabaseUrl = "{{ SUPABASE_URL|default:'https://ivigoibymrcvaftgayqv.supabase.co' }}";
-            const supabaseAnonKey = "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aWdvaWJ5bXJjdmFmdGdheXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MDI2MDgsImV4cCI6MjA3OTQ3ODYwOH0.c3MoFVyNGXwZ3zqtgWz62Du0WfA7pranyAXDwRpy5sw' }}";
-            
-            cctvSupabase = supabase.createClient(supabaseUrl, supabaseAnonKey);
-        }
+        cctvSupabase = window._supabase ?? supabase.createClient(
+            "{{ SUPABASE_URL|default:'https://ivigoibymrcvaftgayqv.supabase.co' }}",
+            "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aWdvaWJ5bXJjdmFmdGdheXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MDI2MDgsImV4cCI6MjA3OTQ3ODYwOH0.c3MoFVyNGXwZ3zqtgWz62Du0WfA7pranyAXDwRpy5sw' }}"
+        );
     }
     return cctvSupabase;
 }
 
-// Load cameras from database
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const sid = id => String(id);   // normalize camera IDs to string
+
+function buildStreamUrl(cameraId) {
+    // Cache-bust so browser always re-fetches when we set src
+    return `/camera-stream/${sid(cameraId)}/?t=${Date.now()}`;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function getCookie(name) {
+    for (const c of document.cookie.split(';')) {
+        const t = c.trim();
+        if (t.startsWith(name + '=')) return decodeURIComponent(t.slice(name.length + 1));
+    }
+    return null;
+}
+
+function showNotification(message, type = 'info') {
+    document.querySelectorAll('.notif-toast').forEach(n => n.remove());
+    const bg = { success: 'bg-greenlight', error: 'bg-alert', info: 'bg-sky', warn: 'bg-gold' }[type] ?? 'bg-sky';
+    const icon = { success: 'bi-check-circle', error: 'bi-exclamation-triangle', info: 'bi-info-circle', warn: 'bi-exclamation-circle' }[type] ?? 'bi-info-circle';
+    const el = document.createElement('div');
+    el.className = `notif-toast fixed top-4 right-4 p-4 rounded-lg ${bg} text-white z-[99999] shadow-xl transition-all duration-300`;
+    el.innerHTML = `<div class="flex items-center gap-2"><i class="bi ${icon}"></i><span>${message}</span></div>`;
+    document.body.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateX(120%)'; setTimeout(() => el.remove(), 350); }, 4000);
+}
+
+// ─── Load cameras from Supabase ───────────────────────────────────────────────
 async function loadCamerasFromDatabase() {
     try {
-        const supabase = getSupabaseClient();
-        if (!supabase) {
-            showNotification('❌ Supabase client not available', 'error');
-            return;
-        }
-
-        const { data: cameras, error } = await supabase
+        const sb = getSupabaseClient();
+        const { data: cameras, error } = await sb
             .from('cctv')
             .select('*')
             .order('camera_id', { ascending: true });
 
-        if (error) {
-            throw error;
-        }
+        if (error) throw error;
 
-        // Reset camera configs
+        // Preserve in-memory stream/AI state across reloads
+        const prev = { ...cameraConfigs };
         cameraConfigs = {};
-        
-        // Update the cameras grid
-        const camerasGrid = document.getElementById('camerasGrid');
-        
-        if (cameras && cameras.length > 0) {
-            camerasGrid.innerHTML = cameras.map(camera => {
-                const cameraId = `camera-${camera.camera_id}`;
-                
-                // Store in cameraConfigs
-                cameraConfigs[camera.camera_id] = {
-                    camera_id: camera.camera_id,
-                    location_name: camera.location_name,
-                    ip_address: camera.ip_address,
-                    status: camera.status,
-                    ai_enabled: false,
-                    stream_active: false,
-                    stream_url: '',
-                    last_updated: camera.updated_at
-                };
 
-                // Determine status color
-                let statusClass = 'status-active';
-                let statusText = 'LIVE';
-                let bgGradient = 'from-sky/20 to-alert/20';
-                
-                if (camera.status === 'Offline') {
-                    statusClass = 'status-offline';
-                    statusText = 'OFFLINE';
-                    bgGradient = 'from-gray-600/20 to-gray-800/20';
-                } else if (camera.status === 'Maintenance') {
-                    statusClass = 'status-maintenance';
-                    statusText = 'MAINTENANCE';
-                    bgGradient = 'from-gold/20 to-yellow-600/20';
-                }
+        const grid = document.getElementById('camerasGrid');
 
-                return `
-                <div class="camera-feed" id="camera-${camera.camera_id}">
-                    <div class="camera-status ${statusClass}">${statusText}</div>
-                    <div id="aiStatus-${camera.camera_id}" class="ai-status ai-inactive">AI INACTIVE</div>
-                    
-                    <div class="aspect-video bg-gradient-to-br ${bgGradient} flex items-center justify-center">
-                        <img id="video-${camera.camera_id}" src="" class="hidden w-full h-full object-cover camera-video">
-                        <div id="placeholder-${camera.camera_id}" class="text-center text-white">
-                            <i class="bi bi-camera-video text-4xl mb-2 opacity-50"></i>
-                            <p class="font-semibold" id="cameraName-${camera.camera_id}">${camera.location_name}</p>
-                            <p class="text-sm opacity-70">${camera.ip_address}</p>
-                            <p class="text-xs opacity-50 mt-1">ID: ${camera.camera_id}</p>
-                        </div>
-                    </div>
-                    
-                    <div class="p-4 bg-[#1E293B]">
-                        <div class="flex justify-between items-center gap-2">
-                            <span class="text-sm text-gray-400" id="cameraLabel-${camera.camera_id}">${camera.location_name}</span>
-                            <div class="flex gap-2">
-                                <button onclick="openEditModal(${camera.camera_id})" class="bg-gold hover:bg-yellow-600 text-gray-900 px-3 py-1 rounded text-sm transition">
-                                    <i class="bi bi-gear mr-1"></i> Edit
-                                </button>
-                                <button onclick="toggleStream(${camera.camera_id})" class="bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded text-sm transition">
-                                    <i class="bi bi-play-circle mr-1"></i> Start Stream
-                                </button>
-                                <button id="aiToggle-${camera.camera_id}" onclick="toggleAI(${camera.camera_id})" class="bg-greenlight hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition" disabled>
-                                    <i class="bi bi-cpu mr-1"></i> Start AI
-                                </button>
-                                <button onclick="toggleFullscreen(${camera.camera_id})" class="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm transition">
-                                    <i class="bi bi-arrows-fullscreen mr-1"></i> 
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                `;
-            }).join('');
-        } else {
-            camerasGrid.innerHTML = `
+        if (!cameras || cameras.length === 0) {
+            grid.innerHTML = `
                 <div class="col-span-full text-center py-12">
-                    <i class="bi bi-camera-video-off text-4xl text-gray-500 mb-4"></i>
+                    <i class="bi bi-camera-video-off text-5xl text-gray-600 block mb-3"></i>
                     <p class="text-gray-400">No cameras configured</p>
-                    <p class="text-sm text-gray-500 mt-2">Click the + button to add a camera</p>
-                </div>
-            `;
+                    <p class="text-sm text-gray-500 mt-1">Click the + button to add one</p>
+                </div>`;
+            return;
         }
-    } catch (error) {
-        console.error('Error loading cameras:', error);
-        showNotification('❌ Failed to load cameras from database', 'error');
+
+        grid.innerHTML = cameras.map(cam => {
+            const id  = sid(cam.camera_id);
+            const old = prev[id] ?? {};
+
+            cameraConfigs[id] = {
+                camera_id:     id,
+                location_name: cam.location_name,
+                ip_address:    cam.ip_address,
+                status:        cam.status,
+                stream_active: old.stream_active ?? false,
+                ai_enabled:    old.ai_enabled    ?? false,
+            };
+
+            const statusClass = cam.status === 'Offline'     ? 'status-offline'
+                              : cam.status === 'Maintenance'  ? 'status-maintenance'
+                              : 'status-active';
+            const statusText  = cam.status === 'Offline'     ? 'OFFLINE'
+                              : cam.status === 'Maintenance'  ? 'MAINTENANCE'
+                              : 'LIVE';
+
+            return `
+            <div class="camera-feed" id="camera-${id}">
+                <div class="camera-status ${statusClass}" id="camStatus-${id}">${statusText}</div>
+                <div class="ai-status ai-inactive" id="aiStatus-${id}">AI INACTIVE</div>
+
+                <div class="camera-viewport">
+                    <div class="camera-placeholder" id="placeholder-${id}">
+                        <i class="bi bi-camera-video text-5xl opacity-30 mb-2"></i>
+                        <p class="font-semibold">${cam.location_name}</p>
+                        <p class="text-xs opacity-50">${cam.ip_address}</p>
+                        <p class="text-xs opacity-30 mt-1">ID: ${id}</p>
+                    </div>
+                    <div class="camera-loading" id="loading-${id}">
+                        <div class="animate-spin h-9 w-9 border-2 border-sky border-t-transparent rounded-full"></div>
+                    </div>
+                    <div class="camera-reconnect" id="reconnect-${id}">
+                        <i class="bi bi-arrow-repeat text-2xl"></i>
+                        <span class="text-sm">Reconnecting…</span>
+                    </div>
+                    <img id="video-${id}" class="camera-img" src="" alt="${cam.location_name}"
+                         onload="handleStreamLoad('${id}')"
+                         onerror="handleStreamError('${id}')">
+                </div>
+
+                <div class="p-4 bg-[#1E293B]">
+                    <div class="flex justify-between items-center gap-2 flex-wrap">
+                        <span class="text-sm text-gray-300 font-medium truncate max-w-[130px]">${cam.location_name}</span>
+                        <div class="flex gap-1.5 flex-wrap">
+                            <button onclick="openEditModal('${id}')"
+                                class="bg-gold hover:bg-yellow-600 text-gray-900 px-2.5 py-1 rounded text-xs font-semibold transition">
+                                <i class="bi bi-gear"></i> Edit
+                            </button>
+                            <button id="streamBtn-${id}" onclick="toggleStream('${id}')"
+                                class="bg-sky hover:bg-sky/80 text-white px-2.5 py-1 rounded text-xs font-semibold transition">
+                                <i class="bi bi-play-circle mr-1"></i>Start Stream
+                            </button>
+                            <button id="aiToggle-${id}" onclick="toggleAI('${id}')"
+                                class="bg-greenlight hover:bg-green-600 text-white px-2.5 py-1 rounded text-xs font-semibold transition opacity-40 cursor-not-allowed"
+                                disabled>
+                                <i class="bi bi-cpu mr-1"></i>Start AI
+                            </button>
+                            <button onclick="toggleFullscreen('${id}')"
+                                class="bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1 rounded text-xs font-semibold transition">
+                                <i class="bi bi-arrows-fullscreen"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        // Re-attach streams that were already running before the reload
+        for (const id of Object.keys(cameraConfigs)) {
+            const cfg = cameraConfigs[id];
+            if (cfg.stream_active) {
+                _attachStream(id);
+                _syncStreamUI(id, true);
+                if (cfg.ai_enabled) _syncAIUI(id, true);
+                else _syncAIUI(id, false);   // enabled but not active AI
+            }
+        }
+
+    } catch (err) {
+        console.error('loadCamerasFromDatabase:', err);
+        showNotification('❌ Failed to load cameras', 'error');
     }
 }
 
-// Open modal for adding new camera
+// ─── UI sync helpers ──────────────────────────────────────────────────────────
+
+function _syncStreamUI(cameraId, active) {
+    const btn = document.getElementById(`streamBtn-${cameraId}`);
+    if (!btn) return;
+    if (active) {
+        btn.innerHTML = '<i class="bi bi-stop-circle mr-1"></i>Stop Stream';
+        btn.className = 'bg-alert hover:bg-red-700 text-white px-2.5 py-1 rounded text-xs font-semibold transition';
+    } else {
+        btn.innerHTML = '<i class="bi bi-play-circle mr-1"></i>Start Stream';
+        btn.className = 'bg-sky hover:bg-sky/80 text-white px-2.5 py-1 rounded text-xs font-semibold transition';
+    }
+}
+
+function _syncAIUI(cameraId, enabled) {
+    const btn   = document.getElementById(`aiToggle-${cameraId}`);
+    const badge = document.getElementById(`aiStatus-${cameraId}`);
+    if (btn) {
+        btn.disabled = false;
+        if (enabled) {
+            btn.innerHTML = '<i class="bi bi-pause-circle mr-1"></i>Stop AI';
+            btn.className = 'bg-alert hover:bg-red-700 text-white px-2.5 py-1 rounded text-xs font-semibold transition';
+        } else {
+            btn.innerHTML = '<i class="bi bi-cpu mr-1"></i>Start AI';
+            btn.className = 'bg-greenlight hover:bg-green-600 text-white px-2.5 py-1 rounded text-xs font-semibold transition';
+        }
+    }
+    if (badge) {
+        badge.textContent = enabled ? 'AI ACTIVE' : 'AI INACTIVE';
+        badge.className   = `ai-status ${enabled ? 'ai-active' : 'ai-inactive'}`;
+    }
+}
+
+function _disableAIUI(cameraId) {
+    const btn   = document.getElementById(`aiToggle-${cameraId}`);
+    const badge = document.getElementById(`aiStatus-${cameraId}`);
+    if (btn) {
+        btn.innerHTML = '<i class="bi bi-cpu mr-1"></i>Start AI';
+        btn.className = 'bg-greenlight hover:bg-green-600 text-white px-2.5 py-1 rounded text-xs font-semibold transition opacity-40 cursor-not-allowed';
+        btn.disabled  = true;
+    }
+    if (badge) {
+        badge.textContent = 'AI INACTIVE';
+        badge.className   = 'ai-status ai-inactive';
+    }
+}
+
+// ─── Stream attachment ────────────────────────────────────────────────────────
+
+function _attachStream(cameraId) {
+    const id    = sid(cameraId);
+    const img   = document.getElementById(`video-${id}`);
+    const ph    = document.getElementById(`placeholder-${id}`);
+    const spin  = document.getElementById(`loading-${id}`);
+    const rcon  = document.getElementById(`reconnect-${id}`);
+    if (!img) return;
+
+    // Show spinner, hide others
+    if (spin) spin.style.display = 'flex';
+    if (ph)   ph.style.display   = 'none';
+    if (rcon) rcon.style.display = 'none';
+    img.style.display = 'none';
+
+    // Set MJPEG src (browser will keep connection open)
+    img.src = buildStreamUrl(id);
+}
+
+function _stopPoller(cameraId) {
+    const id = sid(cameraId);
+    if (streamPollers[id]) {
+        clearTimeout(streamPollers[id]);
+        delete streamPollers[id];
+    }
+}
+
+// ─── Stream events ─────────────────────────────────────────────────────────────
+
+function handleStreamLoad(cameraId) {
+    const id   = sid(cameraId);
+    const img  = document.getElementById(`video-${id}`);
+    const spin = document.getElementById(`loading-${id}`);
+    const rcon = document.getElementById(`reconnect-${id}`);
+    if (spin) spin.style.display = 'none';
+    if (rcon) rcon.style.display = 'none';
+    if (img)  img.style.display  = 'block';
+}
+
+function handleStreamError(cameraId) {
+    const id  = sid(cameraId);
+    const cfg = cameraConfigs[id];
+    if (!cfg?.stream_active) return;   // stream was intentionally stopped
+
+    const img  = document.getElementById(`video-${id}`);
+    const spin = document.getElementById(`loading-${id}`);
+    const rcon = document.getElementById(`reconnect-${id}`);
+    if (spin) spin.style.display = 'none';
+    if (img)  img.style.display  = 'none';
+    if (rcon) rcon.style.display = 'flex';
+
+    // Auto-reconnect after 3 s
+    _stopPoller(id);
+    streamPollers[id] = setTimeout(() => {
+        if (cameraConfigs[id]?.stream_active) _attachStream(id);
+    }, 3000);
+}
+
+// ─── Toggle stream ─────────────────────────────────────────────────────────────
+
+async function toggleStream(cameraId) {
+    const id  = sid(cameraId);
+    const cfg = cameraConfigs[id];
+    if (!cfg) return;
+    cfg.stream_active ? await stopCameraStream(id) : await startCameraStream(id);
+}
+
+async function startCameraStream(cameraId) {
+    const id  = sid(cameraId);
+    const cfg = cameraConfigs[id];
+    if (!cfg) return;
+
+    if (cfg.status !== 'Active') {
+        showNotification('❌ Cannot stream an Offline or Maintenance camera', 'error');
+        return;
+    }
+
+    // Disable button immediately to prevent double-clicks
+    const btn = document.getElementById(`streamBtn-${id}`);
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split mr-1"></i>Connecting…'; }
+
+    try {
+        const res = await fetch('/start-camera-stream/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+            body: JSON.stringify({
+                camera_id:   id,
+                rtsp_url:    cfg.ip_address,
+                camera_name: cfg.location_name
+            })
+        });
+
+        // Try to parse JSON regardless of status code for better error messages
+        let data = {};
+        try { data = await res.json(); } catch (_) {}
+
+        if (!res.ok) {
+            throw new Error(data.error || `Server returned ${res.status}`);
+        }
+        if (data.status !== 'success') {
+            throw new Error(data.error || 'Unknown server error');
+        }
+
+        cfg.stream_active = true;
+        cfg.ai_enabled    = false;   // always starts with AI OFF
+        _syncStreamUI(id, true);
+        _syncAIUI(id, false);        // enable AI button but show as inactive
+        _attachStream(id);
+        showNotification(`🎥 Stream started — ${cfg.location_name}`, 'success');
+
+    } catch (err) {
+        console.error('startCameraStream:', err);
+        // ← KEY FIX: always reset button on any failure
+        cfg.stream_active = false;
+        _syncStreamUI(id, false);
+        showNotification(`❌ ${err.message}`, 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function stopCameraStream(cameraId) {
+    const id  = sid(cameraId);
+    const cfg = cameraConfigs[id];
+    if (!cfg) return;
+
+    _stopPoller(id);
+
+    // Update state immediately so onerror stops retrying
+    cfg.stream_active = false;
+    cfg.ai_enabled    = false;
+
+    // Reset UI immediately (don't wait for server)
+    const img  = document.getElementById(`video-${id}`);
+    const ph   = document.getElementById(`placeholder-${id}`);
+    const spin = document.getElementById(`loading-${id}`);
+    const rcon = document.getElementById(`reconnect-${id}`);
+    if (img)  { img.src = ''; img.style.display = 'none'; }
+    if (ph)   ph.style.display   = 'flex';
+    if (spin) spin.style.display = 'none';
+    if (rcon) rcon.style.display = 'none';
+
+    _syncStreamUI(id, false);
+    _disableAIUI(id);
+
+    if (currentFullscreenCamera === id) exitFullscreen();
+
+    // Notify server (non-blocking; failure is non-fatal)
+    fetch('/stop-camera-stream/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({ camera_id: id })
+    }).catch(err => console.warn('stopCameraStream (server):', err));
+
+    showNotification(`⏹️ Stream stopped — ${cfg.location_name}`, 'success');
+}
+
+// ─── AI toggle ─────────────────────────────────────────────────────────────────
+
+async function toggleAI(cameraId) {
+    const id  = sid(cameraId);
+    const cfg = cameraConfigs[id];
+    if (!cfg) return;
+
+    if (!cfg.stream_active) {
+        showNotification('⚠️ Start the stream before enabling AI', 'warn');
+        return;
+    }
+
+    const newState = !cfg.ai_enabled;
+
+    try {
+        const res = await fetch('/toggle-camera-ai/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+            body: JSON.stringify({ camera_id: id, ai_enabled: newState })
+        });
+
+        let data = {};
+        try { data = await res.json(); } catch (_) {}
+
+        if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
+
+        cfg.ai_enabled = newState;
+        _syncAIUI(id, newState);
+        showNotification(
+            newState ? `🤖 AI enabled — ${cfg.location_name}` : `⏹️ AI disabled — ${cfg.location_name}`,
+            'success'
+        );
+    } catch (err) {
+        console.error('toggleAI:', err);
+        showNotification(`❌ AI toggle failed: ${err.message}`, 'error');
+    }
+}
+
+// ─── Global controls ──────────────────────────────────────────────────────────
+
+async function startAllStreams() {
+    showNotification('🚀 Starting all camera streams…', 'info');
+    for (const id of Object.keys(cameraConfigs)) {
+        const cfg = cameraConfigs[id];
+        if (!cfg.stream_active && cfg.status === 'Active') {
+            await startCameraStream(id);
+            await sleep(600);
+        }
+    }
+}
+
+async function stopAllStreams() {
+    showNotification('⏹️ Stopping all streams…', 'info');
+    for (const id of Object.keys(cameraConfigs)) {
+        if (cameraConfigs[id].stream_active) await stopCameraStream(id);
+    }
+}
+
+async function startAllAI() {
+    showNotification('🤖 Starting AI on all active streams…', 'info');
+    for (const id of Object.keys(cameraConfigs)) {
+        const cfg = cameraConfigs[id];
+        if (cfg.stream_active && !cfg.ai_enabled) {
+            await toggleAI(id);
+            await sleep(300);
+        }
+    }
+}
+
+async function stopAllAI() {
+    showNotification('⏹️ Stopping AI on all cameras…', 'info');
+    for (const id of Object.keys(cameraConfigs)) {
+        if (cameraConfigs[id].ai_enabled) await toggleAI(id);
+    }
+}
+
+// ─── Fullscreen ───────────────────────────────────────────────────────────────
+
+function toggleFullscreen(cameraId) {
+    const id = sid(cameraId);
+    currentFullscreenCamera === id ? exitFullscreen() : enterFullscreen(id);
+}
+
+function enterFullscreen(cameraId) {
+    const id  = sid(cameraId);
+    const cfg = cameraConfigs[id];
+    if (!cfg?.stream_active) {
+        showNotification('⚠️ Start the stream before going fullscreen', 'warn');
+        return;
+    }
+    currentFullscreenCamera = id;
+
+    const fsCont  = document.getElementById('fullscreen-container');
+    const fsImg   = document.getElementById('fullscreen-img');
+    const fsLabel = document.getElementById('fullscreen-label');
+
+    fsImg.src           = buildStreamUrl(id);
+    fsLabel.textContent = `📹 ${cfg.location_name}`;
+    fsCont.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function exitFullscreen() {
+    const fsCont = document.getElementById('fullscreen-container');
+    const fsImg  = document.getElementById('fullscreen-img');
+    fsImg.src = '';
+    fsCont.style.display = 'none';
+    document.body.style.overflow = '';
+    currentFullscreenCamera = null;
+}
+
+// ─── Modal: Add / Edit / Delete ───────────────────────────────────────────────
+
 function openAddCameraModal() {
     isEditing = false;
     currentConfigCamera = null;
-    
     document.getElementById('configTitle').textContent = 'Add New Camera';
     document.getElementById('configLocationName').value = '';
     document.getElementById('configIpAddress').value = '';
@@ -412,542 +789,111 @@ function openAddCameraModal() {
     document.getElementById('configModal').style.display = 'block';
 }
 
-// Open modal for editing camera
 function openEditModal(cameraId) {
+    const id  = sid(cameraId);
+    const cfg = cameraConfigs[id];
+    if (!cfg) return;
     isEditing = true;
-    currentConfigCamera = cameraId;
-    const config = cameraConfigs[cameraId];
-    
-    if (!config) return;
-    
-    document.getElementById('configTitle').textContent = `Edit Camera ${cameraId}`;
-    document.getElementById('configLocationName').value = config.location_name;
-    document.getElementById('configIpAddress').value = config.ip_address;
-    document.getElementById('configStatus').value = config.status;
+    currentConfigCamera = id;
+    document.getElementById('configTitle').textContent = `Edit Camera ${id}`;
+    document.getElementById('configLocationName').value = cfg.location_name;
+    document.getElementById('configIpAddress').value = cfg.ip_address;
+    document.getElementById('configStatus').value = cfg.status;
     document.getElementById('deleteCameraBtn').classList.remove('hidden');
     document.getElementById('configModal').style.display = 'block';
 }
 
-// Save camera configuration
-async function saveCameraConfig() {
-    const locationName = document.getElementById('configLocationName').value.trim();
-    const ipAddress = document.getElementById('configIpAddress').value.trim();
-    const status = document.getElementById('configStatus').value;
-
-    if (!locationName || !ipAddress) {
-        showNotification('❌ Please enter both location name and IP address', 'error');
-        return;
-    }
-
-    try {
-        const supabase = getSupabaseClient();
-        
-        if (isEditing && currentConfigCamera) {
-            // Update existing camera
-            const { error } = await supabase
-                .from('cctv')
-                .update({
-                    location_name: locationName,
-                    ip_address: ipAddress,
-                    status: status,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('camera_id', currentConfigCamera);
-
-            if (error) throw error;
-            
-            showNotification('✅ Camera updated successfully!', 'success');
-        } else {
-            // Add new camera
-            const { data, error } = await supabase
-                .from('cctv')
-                .insert([
-                    {
-                        location_name: locationName,
-                        ip_address: ipAddress,
-                        status: status
-                    }
-                ])
-                .select();
-
-            if (error) throw error;
-            
-            showNotification('✅ Camera added successfully!', 'success');
-        }
-
-        closeConfigModal();
-        await loadCamerasFromDatabase();
-        
-    } catch (error) {
-        console.error('Error saving camera:', error);
-        showNotification('❌ Failed to save camera configuration', 'error');
-    }
-}
-
-// Delete camera
-async function deleteCamera() {
-    if (!currentConfigCamera || !confirm('Are you sure you want to delete this camera?')) {
-        return;
-    }
-
-    try {
-        const supabase = getSupabaseClient();
-        
-        const { error } = await supabase
-            .from('cctv')
-            .delete()
-            .eq('camera_id', currentConfigCamera);
-
-        if (error) throw error;
-        
-        // Stop stream if active
-        if (cameraConfigs[currentConfigCamera]?.stream_active) {
-            await stopCameraStream(currentConfigCamera);
-        }
-        
-        showNotification('🗑️ Camera deleted successfully!', 'success');
-        closeConfigModal();
-        await loadCamerasFromDatabase();
-        
-    } catch (error) {
-        console.error('Error deleting camera:', error);
-        showNotification('❌ Failed to delete camera', 'error');
-    }
-}
-
-// Global Control Functions
-async function startAllStreams() {
-    showNotification('🚀 Starting all camera streams...', 'info');
-    
-    for (const cameraId of Object.keys(cameraConfigs)) {
-        if (!cameraConfigs[cameraId].stream_active && cameraConfigs[cameraId].status === 'Active') {
-            await startCameraStream(parseInt(cameraId));
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-    }
-}
-
-async function stopAllStreams() {
-    showNotification('⏹️ Stopping all camera streams...', 'info');
-    
-    for (const cameraId of Object.keys(cameraConfigs)) {
-        if (cameraConfigs[cameraId].stream_active) {
-            await stopCameraStream(parseInt(cameraId));
-        }
-    }
-}
-
-async function startAllAI() {
-    showNotification('🤖 Starting AI on all active streams...', 'info');
-    
-    for (const cameraId of Object.keys(cameraConfigs)) {
-        if (cameraConfigs[cameraId].stream_active && !cameraConfigs[cameraId].ai_enabled) {
-            await toggleAI(parseInt(cameraId));
-            await new Promise(resolve => setTimeout(resolve, 500));
-        }
-    }
-}
-
-async function stopAllAI() {
-    showNotification('⏹️ Stopping AI on all cameras...', 'info');
-    
-    for (const cameraId of Object.keys(cameraConfigs)) {
-        if (cameraConfigs[cameraId].ai_enabled) {
-            await toggleAI(parseInt(cameraId));
-        }
-    }
-}
-
-// Individual Camera Functions
-async function toggleStream(cameraId) {
-    const config = cameraConfigs[cameraId];
-    
-    if (!config) {
-        showNotification('❌ Camera configuration not found', 'error');
-        return;
-    }
-    
-    if (config.stream_active) {
-        await stopCameraStream(cameraId);
-    } else {
-        await startCameraStream(cameraId);
-    }
-}
-
-async function startCameraStream(cameraId) {
-    const config = cameraConfigs[cameraId];
-    
-    if (!config || config.status !== 'Active') {
-        showNotification('❌ Cannot start stream for offline or maintenance cameras', 'error');
-        return;
-    }
-
-    try {
-        const response = await fetch('/start-camera-stream/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({
-                camera_id: cameraId,
-                rtsp_url: config.ip_address,
-                camera_name: config.location_name
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            config.stream_active = true;
-            config.stream_url = `/camera-stream/${cameraId}/`;
-            
-            // Update UI
-            const videoElement = document.getElementById(`video-${cameraId}`);
-            const placeholder = document.getElementById(`placeholder-${cameraId}`);
-            
-            if (videoElement && placeholder) {
-                videoElement.src = config.stream_url + '?t=' + new Date().getTime();
-                videoElement.classList.remove('hidden');
-                placeholder.classList.add('hidden');
-                
-                videoElement.onerror = function() {
-                    console.error(`❌ Stream failed for ${config.location_name}`);
-                    showNotification(`❌ Failed to connect to ${config.location_name}`, 'error');
-                    stopCameraStream(cameraId);
-                };
-            }
-            
-            // Update camera status in database
-            await updateCameraStatus(cameraId, 'Active');
-            
-            showNotification(`🎥 Live stream started for ${config.location_name}`, 'success');
-            updateCameraUI(cameraId);
-            
-        } else {
-            throw new Error(data.error || 'Failed to start stream');
-        }
-    } catch (error) {
-        console.error('Error starting stream:', error);
-        showNotification(`❌ Failed to start stream for ${config.location_name}: ${error.message}`, 'error');
-    }
-}
-
-async function stopCameraStream(cameraId) {
-    const config = cameraConfigs[cameraId];
-    
-    if (!config) return;
-
-    try {
-        const response = await fetch('/stop-camera-stream/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({
-                camera_id: cameraId
-            })
-        });
-        
-        if (response.ok) {
-            config.stream_active = false;
-            config.ai_enabled = false;
-            config.stream_url = '';
-            
-            // Update UI
-            const videoElement = document.getElementById(`video-${cameraId}`);
-            const placeholder = document.getElementById(`placeholder-${cameraId}`);
-            
-            if (videoElement && placeholder) {
-                videoElement.src = '';
-                videoElement.classList.add('hidden');
-                placeholder.classList.remove('hidden');
-            }
-            
-            updateCameraUI(cameraId);
-            showNotification(`⏹️ Stream stopped for ${config.location_name}`, 'success');
-        }
-    } catch (error) {
-        console.error('Error stopping stream:', error);
-    }
-}
-
-async function toggleAI(cameraId) {
-    const config = cameraConfigs[cameraId];
-    
-    if (!config) {
-        showNotification('❌ Camera configuration not found', 'error');
-        return;
-    }
-    
-    if (!config.stream_active) {
-        showNotification('⚠️ Please start the stream first before enabling AI', 'error');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/toggle-camera-ai/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({
-                camera_id: cameraId,
-                ai_enabled: !config.ai_enabled
-            })
-        });
-        
-        if (response.ok) {
-            config.ai_enabled = !config.ai_enabled;
-            updateCameraUI(cameraId);
-            
-            showNotification(
-                config.ai_enabled ? 
-                `🤖 AI enabled for ${config.location_name}` : 
-                `⏹️ AI disabled for ${config.location_name}`,
-                'success'
-            );
-            
-            // Start status updates if AI is enabled
-            if (config.ai_enabled) {
-                startStatusUpdates(cameraId);
-            }
-        }
-    } catch (error) {
-        console.error('Error toggling AI:', error);
-        showNotification(`❌ Failed to toggle AI for ${config.location_name}`, 'error');
-    }
-}
-
-// Update camera status in database
-async function updateCameraStatus(cameraId, status) {
-    try {
-        const supabase = getSupabaseClient();
-        const { error } = await supabase
-            .from('cctv')
-            .update({
-                status: status,
-                updated_at: new Date().toISOString()
-            })
-            .eq('camera_id', cameraId);
-
-        if (error) {
-            console.error('Error updating camera status:', error);
-        } else {
-            // Update local config
-            if (cameraConfigs[cameraId]) {
-                cameraConfigs[cameraId].status = status;
-                cameraConfigs[cameraId].last_updated = new Date().toISOString();
-                updateCameraUI(cameraId);
-            }
-        }
-    } catch (error) {
-        console.error('Error updating camera status:', error);
-    }
-}
-
-// Update camera UI
-function updateCameraUI(cameraId) {
-    const config = cameraConfigs[cameraId];
-    
-    if (!config) return;
-    
-    // Update AI status
-    const aiStatus = document.getElementById(`aiStatus-${cameraId}`);
-    const aiToggle = document.getElementById(`aiToggle-${cameraId}`);
-    
-    if (aiStatus) {
-        aiStatus.textContent = config.ai_enabled ? 'AI ACTIVE' : 'AI INACTIVE';
-        aiStatus.className = `ai-status ${config.ai_enabled ? 'ai-active' : 'ai-inactive'}`;
-    }
-    
-    if (aiToggle) {
-        aiToggle.innerHTML = config.ai_enabled ? 
-            '<i class="bi bi-pause-circle mr-1"></i> Stop AI' : 
-            '<i class="bi bi-play-circle mr-1"></i> Start AI';
-        aiToggle.className = config.ai_enabled ?
-            'bg-alert hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition' :
-            'bg-greenlight hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition';
-            
-        // Enable/disable AI button based on stream status
-        aiToggle.disabled = !config.stream_active;
-        if (!config.stream_active) {
-            aiToggle.classList.add('opacity-50', 'cursor-not-allowed');
-        } else {
-            aiToggle.classList.remove('opacity-50', 'cursor-not-allowed');
-        }
-    }
-    
-    // Update stream control button
-    const streamToggle = document.querySelector(`[onclick="toggleStream(${cameraId})"]`);
-    if (streamToggle) {
-        streamToggle.innerHTML = config.stream_active ? 
-            '<i class="bi bi-stop-circle mr-1"></i> Stop Stream' : 
-            '<i class="bi bi-play-circle mr-1"></i> Start Stream';
-        streamToggle.className = config.stream_active ?
-            'bg-alert hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition' :
-            'bg-sky hover:bg-sky/80 text-white px-3 py-1 rounded text-sm transition';
-    }
-    
-    // Update camera status indicator
-    const statusElement = document.querySelector(`#camera-${cameraId} .camera-status`);
-    if (statusElement) {
-        let statusClass = 'status-active';
-        let statusText = 'LIVE';
-        
-        if (config.status === 'Offline') {
-            statusClass = 'status-offline';
-            statusText = 'OFFLINE';
-        } else if (config.status === 'Maintenance') {
-            statusClass = 'status-maintenance';
-            statusText = 'MAINTENANCE';
-        }
-        
-        statusElement.className = `camera-status ${statusClass}`;
-        statusElement.textContent = statusText;
-    }
-}
-
-// Modal functions
 function closeConfigModal() {
     document.getElementById('configModal').style.display = 'none';
     currentConfigCamera = null;
     isEditing = false;
 }
 
-// Fullscreen functions
-function toggleFullscreen(cameraId) {
-    if (currentFullscreenCamera) {
-        exitFullscreen();
-    } else {
-        enterFullscreen(cameraId);
+async function saveCameraConfig() {
+    const locationName = document.getElementById('configLocationName').value.trim();
+    const ipAddress    = document.getElementById('configIpAddress').value.trim();
+    const status       = document.getElementById('configStatus').value;
+
+    if (!locationName || !ipAddress) {
+        showNotification('❌ Location name and IP/URL are required', 'error');
+        return;
     }
-}
 
-function enterFullscreen(cameraId) {
-    const videoElement = document.getElementById(`video-${cameraId}`);
-    const config = cameraConfigs[cameraId];
-    
-    if (videoElement && videoElement.src && config?.stream_active) {
-        currentFullscreenCamera = cameraId;
-        
-        const fullscreenContainer = document.getElementById('fullscreen-container');
-        const fullscreenVideo = document.getElementById('fullscreen-video');
-        
-        fullscreenVideo.src = videoElement.src;
-        fullscreenContainer.style.display = 'block';
-        
-        document.querySelectorAll('.camera-feed').forEach(feed => {
-            feed.style.opacity = '0.3';
-        });
-    } else {
-        showNotification('⚠️ Please start the stream first before entering fullscreen', 'error');
-    }
-}
-
-function exitFullscreen() {
-    const fullscreenContainer = document.getElementById('fullscreen-container');
-    const fullscreenVideo = document.getElementById('fullscreen-video');
-    
-    fullscreenContainer.style.display = 'none';
-    fullscreenVideo.src = '';
-    
-    document.querySelectorAll('.camera-feed').forEach(feed => {
-        feed.style.opacity = '1';
-    });
-    
-    currentFullscreenCamera = null;
-}
-
-// Utility functions
-function showNotification(message, type) {
-    // Remove existing notifications
-    document.querySelectorAll('.notification').forEach(n => n.remove());
-    
-    const notification = document.createElement('div');
-    notification.className = `notification fixed top-4 right-4 p-4 rounded-lg ${
-        type === 'success' ? 'bg-greenlight' : 
-        type === 'error' ? 'bg-alert' : 
-        type === 'info' ? 'bg-sky' : 'bg-gold'
-    } text-white z-50 shadow-lg transition-all duration-300`;
-    notification.innerHTML = `
-        <div class="flex items-center gap-2">
-            <i class="bi ${
-                type === 'success' ? 'bi-check-circle' : 
-                type === 'error' ? 'bi-exclamation-triangle' : 
-                type === 'info' ? 'bi-info-circle' : 'bi-exclamation-circle'
-            }"></i>
-            <span>${message}</span>
-        </div>
-    `;
-    
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        notification.style.opacity = '0';
-        notification.style.transform = 'translateX(100%)';
-        setTimeout(() => notification.remove(), 300);
-    }, 4000);
-}
-
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
-            }
+    try {
+        const sb = getSupabaseClient();
+        if (isEditing && currentConfigCamera) {
+            const { error } = await sb.from('cctv')
+                .update({ location_name: locationName, ip_address: ipAddress, status, updated_at: new Date().toISOString() })
+                .eq('camera_id', currentConfigCamera);
+            if (error) throw error;
+            showNotification('✅ Camera updated!', 'success');
+        } else {
+            const { error } = await sb.from('cctv')
+                .insert([{ location_name: locationName, ip_address: ipAddress, status }]);
+            if (error) throw error;
+            showNotification('✅ Camera added!', 'success');
         }
+        closeConfigModal();
+        await loadCamerasFromDatabase();
+    } catch (err) {
+        console.error('saveCameraConfig:', err);
+        showNotification('❌ Failed to save configuration', 'error');
     }
-    return cookieValue;
 }
 
-// Setup real-time updates
+async function deleteCamera() {
+    if (!currentConfigCamera || !confirm('Delete this camera?')) return;
+    try {
+        const id = sid(currentConfigCamera);
+        if (cameraConfigs[id]?.stream_active) await stopCameraStream(id);
+        const sb = getSupabaseClient();
+        const { error } = await sb.from('cctv').delete().eq('camera_id', id);
+        if (error) throw error;
+        showNotification('🗑️ Camera deleted', 'success');
+        closeConfigModal();
+        await loadCamerasFromDatabase();
+    } catch (err) {
+        console.error('deleteCamera:', err);
+        showNotification('❌ Failed to delete camera', 'error');
+    }
+}
+
+
+// ─── Supabase Realtime ────────────────────────────────────────────────────────
+
 function setupRealtimeUpdates() {
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    supabase
-        .channel('cctv-changes')
-        .on(
-            'postgres_changes',
-            {
-                event: '*',
-                schema: 'public',
-                table: 'cctv'
-            },
-            (payload) => {
-                console.log('CCTV data changed:', payload);
-                loadCamerasFromDatabase();
-            }
-        )
-        .subscribe();
+    const sb = getSupabaseClient();
+    if (!sb) return;
+    sb.channel('cctv-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cctv' }, () => {
+          loadCamerasFromDatabase();
+      })
+      .subscribe();
 }
 
-// Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', async function() {
-    // Load cameras from database
+// ─── Init ─────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', async () => {
     await loadCamerasFromDatabase();
-    
-    // Setup real-time updates
     setupRealtimeUpdates();
-    
-    // Handle ESC key to exit fullscreen
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && currentFullscreenCamera) {
-            exitFullscreen();
-        }
+
+    // Escape exits fullscreen
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && currentFullscreenCamera) exitFullscreen();
     });
-    
-    // Close modal when clicking outside
+
+    // Click outside modal → close
     document.getElementById('configModal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            closeConfigModal();
+        if (e.target === this) closeConfigModal();
+    });
+
+    // On tab return, re-stamp fullscreen img so it doesn't go blank
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && currentFullscreenCamera) {
+            const cfg = cameraConfigs[currentFullscreenCamera];
+            if (cfg?.stream_active) {
+                document.getElementById('fullscreen-img').src = buildStreamUrl(currentFullscreenCamera);
+            }
         }
     });
 });
