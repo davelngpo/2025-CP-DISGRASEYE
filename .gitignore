@@ -112,3 +112,5 @@ temp/
 tmp/
 *.mp4
 *.jpg
+disgraseye_project/db.sqlite3
+disgraseye_project/db.sqlite3
