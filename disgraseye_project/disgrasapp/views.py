@@ -4,10 +4,9 @@ import time
 import threading
 import json
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse, FileResponse, StreamingHttpResponse
 from django.conf import settings
 from django.conf import settings as django_settings  
-from django.http import HttpResponse, FileResponse, StreamingHttpResponse
 from ultralytics import YOLO
 from django.contrib.auth.decorators import login_required
 import numpy as np
@@ -20,6 +19,8 @@ from collections import defaultdict
 from django.views.decorators.csrf import csrf_exempt
 from supabase import create_client
 from .decorators import login_required
+from wsgiref.util import FileWrapper
+import mimetypes
 
 
 # Load your trained model
@@ -391,125 +392,281 @@ def live_monitoring(request):
     })
 
 # =============================================================================
-# EXISTING VIDEO PROCESSING FUNCTIONS (UNCHANGED)
+# FIXED VIDEO UPLOAD AND PROCESSING FUNCTIONS
 # =============================================================================
 
+def process_video_thread(video_id):
+    """
+    Background thread for video processing
+    """
+    try:
+        video_upload = VideoUpload.objects.get(id=video_id)
+        result = process_video(video_upload)
+        
+        if result:
+            print(f"✅ Video {video_id} processed successfully. Crash detected: {result['crash_detected']}")
+        else:
+            print(f"❌ Video {video_id} processing failed")
+            
+    except Exception as e:
+        print(f"❌ Error in process_video_thread for video {video_id}: {e}")
+
 def process_video(video_upload):
-    """Process uploaded video with YOLOv8 model for crash detection"""
+    """
+    Process uploaded video with YOLOv8 model for crash detection
+    Ensures proper video encoding and file integrity
+    """
     CRASH_CONFIDENCE_THRESHOLD = 0.60
+    CRASH_KEYWORDS = ['crash', 'accident', 'collision', 'wreck', 'smash']
     
     try:
+        # Update status
+        video_upload.processing_complete = False
+        video_upload.save()
+        
         input_video_path = video_upload.video_file.path
         
         # Create output path with proper extension
         original_name = os.path.basename(input_video_path)
         name_without_ext = os.path.splitext(original_name)[0]
-        output_filename = f'processed_{name_without_ext}.mp4'  # Force .mp4 extension
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_filename = f'processed_{name_without_ext}_{timestamp}.mp4'
         output_path = os.path.join(settings.MEDIA_ROOT, 'processed_videos', output_filename)
         
         # Ensure directory exists
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
-        # Open the video
+        print(f"📹 Input video: {input_video_path}")
+        print(f"📹 Output path: {output_path}")
+        
+        # Open the input video
         cap = cv2.VideoCapture(input_video_path)
         if not cap.isOpened():
-            print(f"Error: Could not open video file {input_video_path}")
-            return None
+            raise Exception(f"Could not open video file {input_video_path}")
         
         # Get video properties
         fps = int(cap.get(cv2.CAP_PROP_FPS))
-        if fps == 0:  # Handle invalid FPS
+        if fps <= 0 or fps > 60:  # Handle invalid FPS
             fps = 30
+            print(f"⚠️ Invalid FPS detected, using default: {fps}")
+            
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
-        print(f"📹 Processing video: {width}x{height} at {fps} FPS")
+        # Ensure dimensions are valid
+        if width <= 0 or height <= 0:
+            # Try to read first frame to get dimensions
+            ret, test_frame = cap.read()
+            if ret and test_frame is not None:
+                height, width = test_frame.shape[:2]
+                # Reset capture to beginning
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            else:
+                raise Exception("Could not determine video dimensions")
         
-        # Use MP4V codec for maximum compatibility (works on most systems)
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            # Estimate by reading all frames (slow but accurate)
+            total_frames = 0
+            while True:
+                ret, _ = cap.read()
+                if not ret:
+                    break
+                total_frames += 1
+            # Reset capture to beginning
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         
-        if not out.isOpened():
-            print(f"❌ Failed to create output video writer")
-            cap.release()
-            return None
+        print(f"📹 Processing video: {width}x{height} at {fps} FPS, {total_frames} total frames")
+        
+        # Try different codecs in order of compatibility
+        codecs_to_try = [
+            ('avc1', 'H.264'),
+            ('H264', 'H.264 (alt)'),
+            ('mp4v', 'MPEG-4'),
+            ('X264', 'x264'),
+            ('MJPG', 'Motion JPEG'),
+            ('DIVX', 'DivX'),
+            ('XVID', 'Xvid')
+        ]
+        
+        out = None
+        used_codec = None
+        
+        for fourcc_str, codec_name in codecs_to_try:
+            try:
+                fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
+                out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+                
+                if out.isOpened():
+                    used_codec = fourcc_str
+                    print(f"✅ Successfully opened VideoWriter with codec: {codec_name} ({fourcc_str})")
+                    break
+                else:
+                    print(f"⚠️ Failed with codec: {codec_name} ({fourcc_str})")
+            except Exception as e:
+                print(f"⚠️ Error with codec {fourcc_str}: {e}")
+                continue
+        
+        if out is None or not out.isOpened():
+            # Last resort: try without specifying codec (let OpenCV choose)
+            try:
+                out = cv2.VideoWriter(output_path, 0, fps, (width, height))
+                if out.isOpened():
+                    used_codec = "default"
+                    print("✅ Using default codec")
+                else:
+                    raise Exception("Could not open VideoWriter with any codec")
+            except Exception as e:
+                raise Exception(f"Failed to create output video writer: {e}")
+        
+        print(f"✅ Using codec: {used_codec}")
         
         crash_detected_any_frame = False
         frame_count = 0
         crash_frames = 0
-        total_frames = 0
+        crash_events = []
         
         # Process each frame
-        while cap.isOpened():
+        while True:
             ret, frame = cap.read()
             if not ret:
                 break
             
-            results = model(frame, conf=CRASH_CONFIDENCE_THRESHOLD)
+            frame_count += 1
+            
+            # Update progress every 30 frames
+            if frame_count % 30 == 0:
+                progress = (frame_count / total_frames * 100) if total_frames > 0 else 0
+                print(f"📊 Processing: {frame_count}/{total_frames} frames ({progress:.1f}%)")
+            
+            # Ensure frame is valid
+            if frame is None or frame.size == 0:
+                print(f"⚠️ Invalid frame at {frame_count}, skipping")
+                continue
+            
+            # Run YOLO detection
+            try:
+                results = model(frame, conf=CRASH_CONFIDENCE_THRESHOLD, verbose=False)
+            except Exception as e:
+                print(f"⚠️ YOLO error on frame {frame_count}: {e}")
+                # Continue with unannotated frame
+                results = None
             
             frame_has_crash = False
+            crash_details = []
             
             # Check if crash is detected
-            for result in results:
-                if result.boxes is not None and len(result.boxes) > 0:
-                    for box in result.boxes:
-                        class_id = int(box.cls[0])
-                        class_name = model.names[class_id]
-                        confidence = float(box.conf[0])
-                        
-                        crash_keywords = ['crash', 'accident']
-                        
-                        if any(keyword in class_name.lower() for keyword in crash_keywords):
-                            frame_has_crash = True
-                            print(f"Crash detected in frame {frame_count}: {class_name} with confidence: {confidence:.2f}")
+            if results and len(results) > 0:
+                for result in results:
+                    if result is not None and result.boxes is not None and len(result.boxes) > 0:
+                        for box in result.boxes:
+                            class_id = int(box.cls[0])
+                            class_name = model.names[class_id]
+                            confidence = float(box.conf[0])
+                            
+                            # Check if this class indicates a crash
+                            if any(keyword in class_name.lower() for keyword in CRASH_KEYWORDS):
+                                frame_has_crash = True
+                                crash_details.append({
+                                    'class': class_name,
+                                    'confidence': confidence
+                                })
+                                
+                                print(f"🚨 Crash detected in frame {frame_count}: {class_name} ({confidence:.2f})")
             
             if frame_has_crash:
                 crash_frames += 1
-            
-            total_frames += 1
+                crash_detected_any_frame = True
+                
+                # Store crash event timestamp
+                timestamp_seconds = frame_count / fps if fps > 0 else 0
+                crash_events.append({
+                    'frame': frame_count,
+                    'timestamp': timestamp_seconds,
+                    'details': crash_details
+                })
             
             # Visualize results
-            annotated_frame = results[0].plot()
+            if results and len(results) > 0:
+                try:
+                    annotated_frame = results[0].plot()
+                except:
+                    annotated_frame = frame.copy()
+            else:
+                annotated_frame = frame.copy()
             
-            # Add detection info
+            # Add crash detection info
             if frame_has_crash:
-                cv2.putText(annotated_frame, "CRASH DETECTED!", (50, 50),
-                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                crash_detected_any_frame = True
+                cv2.putText(annotated_frame, "🚨 CRASH DETECTED! 🚨", (50, 80),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
             
-            # Add processing info to frame
-            cv2.putText(annotated_frame, f"Frame: {frame_count}", (width - 200, 30),
+            # Add processing info
+            info_text = f"Frame: {frame_count}/{total_frames}"
+            cv2.putText(annotated_frame, info_text, (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
-            # Write the frame to output video
-            out.write(annotated_frame)
-            frame_count += 1
+            # Add timestamp
+            time_seconds = frame_count / fps if fps > 0 else 0
+            time_str = time.strftime('%H:%M:%S', time.gmtime(time_seconds))
+            cv2.putText(annotated_frame, f"Time: {time_str}", (10, 60),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
-            # Progress update every 100 frames
-            if frame_count % 100 == 0:
-                print(f"📊 Processed {frame_count} frames...")
+            # Write the frame
+            try:
+                out.write(annotated_frame)
+            except Exception as e:
+                print(f"❌ Error writing frame {frame_count}: {e}")
         
-        # Release everything
+        # Properly release everything
         cap.release()
         out.release()
+        cv2.destroyAllWindows()
         
-        # Final decision
-        final_crash_detected = crash_detected_any_frame and (crash_frames / total_frames > 0.05) if total_frames > 0 else False
+        # Wait a moment for file to be fully written
+        time.sleep(1)
         
-        print(f"✅ Processing complete: {crash_frames}/{total_frames} frames had crash detection")
-        print(f"🎯 Final crash decision: {final_crash_detected}")
-        print(f"💾 Output saved to: {output_path}")
+        # Verify the output file
+        if not os.path.exists(output_path):
+            raise Exception("Output file was not created")
         
-        # Verify the file was created
-        if os.path.exists(output_path):
-            file_size = os.path.getsize(output_path) / (1024 * 1024)  # MB
-            print(f"📁 Output file size: {file_size:.2f} MB")
+        file_size = os.path.getsize(output_path)
+        if file_size == 0:
+            raise Exception("Output file is empty")
+        
+        print(f"✅ Output file created: {file_size / (1024*1024):.2f} MB")
+        
+        # Try to verify with OpenCV
+        test_cap = cv2.VideoCapture(output_path)
+        if test_cap.isOpened():
+            test_frames = int(test_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            test_fps = test_cap.get(cv2.CAP_PROP_FPS)
+            test_width = int(test_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            test_height = int(test_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            test_cap.release()
+            
+            print(f"✅ Verification successful:")
+            print(f"   - Frames: {test_frames}")
+            print(f"   - FPS: {test_fps}")
+            print(f"   - Resolution: {test_width}x{test_height}")
+            
+            if test_frames == 0:
+                raise Exception("Output file has 0 readable frames")
         else:
-            print("❌ Output file was not created!")
-            return None
+            raise Exception("Output file cannot be read by OpenCV")
         
-        # Save processed video to model
-        video_upload.processed_video.name = f'processed_videos/{output_filename}'
+        # Calculate final results
+        crash_percentage = (crash_frames / frame_count * 100) if frame_count > 0 else 0
+        final_crash_detected = crash_detected_any_frame and (crash_percentage > 5.0)
+        
+        print(f"✅ Processing complete:")
+        print(f"   - Total frames: {frame_count}")
+        print(f"   - Crash frames: {crash_frames} ({crash_percentage:.2f}%)")
+        print(f"   - Crash events: {len(crash_events)}")
+        print(f"   - Final decision: {'CRASH DETECTED' if final_crash_detected else 'NO CRASH'}")
+        
+        # Save to database
+        relative_path = f'processed_videos/{output_filename}'
+        video_upload.processed_video.name = relative_path
         video_upload.crash_detected = final_crash_detected
         video_upload.processing_complete = True
         video_upload.save()
@@ -517,98 +674,256 @@ def process_video(video_upload):
         return {
             'crash_detected': final_crash_detected,
             'frames_processed': frame_count,
-            'crash_frames': crash_frames
+            'crash_frames': crash_frames,
+            'crash_percentage': crash_percentage,
+            'file_size': file_size,
+            'output_path': output_path
         }
         
     except Exception as e:
         print(f"❌ Error processing video: {e}")
-        video_upload.processing_complete = True
-        video_upload.save()
+        import traceback
+        traceback.print_exc()
+        
+        # Still mark as complete but with error
+        try:
+            video_upload.processing_complete = True
+            video_upload.save()
+        except:
+            pass
+            
         return None
 
-def home(request):
-    """Home page with video upload form"""
-    if request.method == 'POST':
-        form = VideoUploadForm(request.POST, request.FILES)
-        if form.is_valid():
-            video_upload = form.save()
+@login_required
+def process_uploaded_video(request):
+    """
+    Handle video upload and processing via AJAX
+    """
+    if request.method == 'POST' and request.FILES.get('video_file'):
+        try:
+            # Save the uploaded video
+            video_upload = VideoUpload.objects.create(
+                video_file=request.FILES['video_file']
+            )
             
-            # Process video
-            result = process_video(video_upload)
+            # Start processing in background
+            thread = threading.Thread(target=process_video_thread, args=(video_upload.id,))
+            thread.daemon = True
+            thread.start()
             
-            if result:
-                # Get the actual URL for the processed video
-                if video_upload.processed_video:
-                    processed_video_url = video_upload.processed_video.url
-                    print(f"🌐 Processed video URL: {processed_video_url}")
-                else:
-                    processed_video_url = None
-                    print("❌ No processed video URL available")
-                
-                return render(request, 'dashboard/result.html', {
-                    'result': result, 
-                    'video_upload': video_upload,
-                    'crash_detected': result['crash_detected'],
-                    'processed_video_url': processed_video_url
-                })
-            else:
-                return render(request, 'dashboard/upload.html', {'form': form, 'error': 'Processing failed. Check console for details.'})
-    else:
-        form = VideoUploadForm()
+            return JsonResponse({
+                'success': True,
+                'video_id': video_upload.id,
+                'message': 'Video uploaded successfully. Processing started.'
+            })
+            
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'error': str(e)
+            }, status=500)
     
-    return render(request, 'dashboard/upload.html', {'form': form})
+    return JsonResponse({'error': 'Invalid request'}, status=400)
 
-def download_processed_video(request, video_id):
-    """Download processed video file"""
-    video_upload = get_object_or_404(VideoUpload, id=video_id)
-    
-    if video_upload.processed_video:
-        file_path = video_upload.processed_video.path
+@login_required
+def get_video_processing_status(request, video_id):
+    """
+    AJAX endpoint to check video processing status
+    """
+    try:
+        video = VideoUpload.objects.get(id=video_id)
         
-        print(f"📥 Download request for: {file_path}")
+        # Get the processed video URL if available
+        processed_url = None
+        if video.processed_video and hasattr(video.processed_video, 'url'):
+            processed_url = video.processed_video.url
         
-        if os.path.exists(file_path):
-            # Get safe filename for download
-            original_filename = os.path.basename(file_path)
-            safe_filename = get_valid_filename(original_filename)
-            
-            # Ensure it has .mp4 extension
-            if not safe_filename.lower().endswith('.mp4'):
-                safe_filename += '.mp4'
-            
-            print(f"📄 Serving file: {file_path} as {safe_filename}")
-            
-            try:
-                response = FileResponse(
-                    open(file_path, 'rb'),
-                    content_type='video/mp4'
-                )
-                response['Content-Disposition'] = f'attachment; filename="{safe_filename}"'
-                response['Content-Length'] = os.path.getsize(file_path)
-                return response
-            except Exception as e:
-                print(f"❌ File response error: {e}")
-                return HttpResponse("Error serving file", status=500)
-        else:
-            print(f"❌ File not found: {file_path}")
-            return HttpResponse("Processed video file not found on server", status=404)
-    
-    return HttpResponse("Processed video not found in database", status=404)
-
-def view_processed_video(request, video_id):
-    """View processed video in browser"""
-    video_upload = get_object_or_404(VideoUpload, id=video_id)
-    
-    if video_upload.processed_video:
-        video_url = video_upload.processed_video.url
-        print(f"👀 View request - Video URL: {video_url}")
-        
-        return render(request, 'dashboard/video_player.html', {
-            'video_upload': video_upload,
-            'video_url': video_url
+        return JsonResponse({
+            'processing_complete': video.processing_complete,
+            'crash_detected': video.crash_detected,
+            'has_processed_video': bool(video.processed_video),
+            'processed_url': processed_url,
+            'video_id': video.id
         })
+    except VideoUpload.DoesNotExist:
+        return JsonResponse({'error': 'Video not found'}, status=404)
+
+@login_required
+def get_video_history(request):
+    """
+    API endpoint to get video processing history
+    """
+    videos = VideoUpload.objects.all().order_by('-uploaded_at')[:50]
+    data = {
+        'videos': [{
+            'id': v.id,
+            'uploaded_at': v.uploaded_at.strftime('%Y-%m-%d %H:%M'),
+            'crash_detected': v.crash_detected,
+            'processed_url': v.processed_video.url if v.processed_video else None
+        } for v in videos]
+    }
+    return JsonResponse(data)
+
+@login_required
+def get_video_stats(request):
+    """
+    API endpoint to get video analysis statistics
+    """
+    total = VideoUpload.objects.count()
+    crashes = VideoUpload.objects.filter(crash_detected=True).count()
+    return JsonResponse({
+        'total': total,
+        'crashes': crashes,
+        'safe': total - crashes
+    })
+
+@login_required
+def download_processed_video(request, video_id):
+    """
+    Download processed video file with proper headers for playback
+    """
+    video_upload = get_object_or_404(VideoUpload, id=video_id)
     
-    return HttpResponse("Processed video not found", status=404)
+    if not video_upload.processed_video:
+        return HttpResponse("Processed video not found in database", status=404)
+    
+    file_path = video_upload.processed_video.path
+    print(f"📥 Download request for: {file_path}")
+    
+    if not os.path.exists(file_path):
+        print(f"❌ File not found: {file_path}")
+        return HttpResponse("Processed video file not found on server", status=404)
+    
+    try:
+        # Get file size
+        file_size = os.path.getsize(file_path)
+        
+        # Get the filename
+        original_filename = os.path.basename(file_path)
+        safe_filename = get_valid_filename(original_filename)
+        
+        # Ensure .mp4 extension
+        if not safe_filename.lower().endswith('.mp4'):
+            safe_filename += '.mp4'
+        
+        # Open the file in binary mode
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+        
+        # Create response with the file data
+        response = HttpResponse(file_data, content_type='video/mp4')
+        
+        # Add headers for download
+        response['Content-Disposition'] = f'attachment; filename="{safe_filename}"'
+        response['Content-Length'] = file_size
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response['Pragma'] = 'no-cache'
+        response['Expires'] = '0'
+        
+        print(f"✅ Serving file for download: {safe_filename} ({file_size} bytes)")
+        return response
+        
+    except Exception as e:
+        print(f"❌ File response error: {e}")
+        import traceback
+        traceback.print_exc()
+        return HttpResponse(f"Error serving file: {str(e)}", status=500)
+
+@login_required
+def view_processed_video(request, video_id):
+    """
+    View processed video in browser with proper streaming support
+    """
+    video_upload = get_object_or_404(VideoUpload, id=video_id)
+    
+    if not video_upload.processed_video:
+        return HttpResponse("Processed video not found", status=404)
+    
+    # Get the absolute URL for the video
+    video_url = video_upload.processed_video.url
+    print(f"👀 View request - Video URL: {video_url}")
+    
+    # Get file info for debugging
+    file_path = video_upload.processed_video.path
+    file_exists = os.path.exists(file_path)
+    file_size = os.path.getsize(file_path) if file_exists else 0
+    
+    print(f"📁 File path: {file_path}")
+    print(f"📁 File exists: {file_exists}")
+    print(f"📁 File size: {file_size} bytes")
+    
+    return render(request, 'dashboard/video_player.html', {
+        'video_upload': video_upload,
+        'video_url': video_url,
+        'video_id': video_id,
+        'crash_detected': video_upload.crash_detected
+    })
+
+@login_required
+def stream_processed_video(request, video_id):
+    """
+    Stream video with support for byte-range requests (for seeking in video player)
+    """
+    video_upload = get_object_or_404(VideoUpload, id=video_id)
+    
+    if not video_upload.processed_video:
+        return HttpResponse("Processed video not found", status=404)
+    
+    file_path = video_upload.processed_video.path
+    
+    if not os.path.exists(file_path):
+        return HttpResponse("File not found", status=404)
+    
+    file_size = os.path.getsize(file_path)
+    
+    # Handle Range header for video seeking
+    range_header = request.headers.get('Range', None)
+    
+    if range_header:
+        # Parse Range header
+        try:
+            # Extract the range value (e.g., "bytes=0-100")
+            range_value = range_header.strip().split('=')[1]
+            start_byte, end_byte = range_value.split('-')
+            
+            start_byte = int(start_byte) if start_byte else 0
+            end_byte = int(end_byte) if end_byte else file_size - 1
+            
+            # Ensure we don't go beyond file size
+            if end_byte >= file_size:
+                end_byte = file_size - 1
+            
+            length = end_byte - start_byte + 1
+            
+            # Open file and seek to start position
+            with open(file_path, 'rb') as f:
+                f.seek(start_byte)
+                data = f.read(length)
+            
+            # Create partial content response
+            response = HttpResponse(data, status=206, content_type='video/mp4')
+            response['Content-Range'] = f'bytes {start_byte}-{end_byte}/{file_size}'
+            response['Accept-Ranges'] = 'bytes'
+            response['Content-Length'] = str(length)
+            response['Cache-Control'] = 'no-cache'
+            
+            return response
+            
+        except Exception as e:
+            print(f"Error handling range request: {e}")
+            # Fall back to serving entire file
+            pass
+    
+    # No range header or error, serve entire file
+    with open(file_path, 'rb') as f:
+        data = f.read()
+    
+    response = HttpResponse(data, content_type='video/mp4')
+    response['Accept-Ranges'] = 'bytes'
+    response['Content-Length'] = file_size
+    response['Cache-Control'] = 'no-cache'
+    
+    return response
 
 # Helper function for safe filenames
 def get_valid_filename(name):
@@ -617,6 +932,10 @@ def get_valid_filename(name):
     s = str(name).strip().replace(' ', '_')
     s = re.sub(r'(?u)[^-\w.]', '', s)
     return s
+
+# =============================================================================
+# CAMERA STREAM FUNCTIONS
+# =============================================================================
 
 active_camera_streams = defaultdict(dict)
 stream_lock = threading.Lock()
@@ -769,39 +1088,49 @@ def start_camera_stream(request):
 def stop_camera_stream(request):
     """Stop video stream for a camera"""
     if request.method == 'POST':
-        data = json.loads(request.body)
-        camera_id = data.get('camera_id')
-        
-        with stream_lock:
-            if camera_id in active_camera_streams:
-                active_camera_streams[camera_id]['active'] = False
-                del active_camera_streams[camera_id]
-                
-                return JsonResponse({
-                    'status': 'success', 
-                    'message': f'Stream stopped for camera {camera_id}'
-                })
-        
-        return JsonResponse({'error': 'Camera stream not found'}, status=404)
+        try:
+            data = json.loads(request.body)
+            camera_id = data.get('camera_id')
+            
+            with stream_lock:
+                if camera_id in active_camera_streams:
+                    active_camera_streams[camera_id]['active'] = False
+                    del active_camera_streams[camera_id]
+                    
+                    return JsonResponse({
+                        'status': 'success', 
+                        'message': f'Stream stopped for camera {camera_id}'
+                    })
+            
+            return JsonResponse({'error': 'Camera stream not found'}, status=404)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)
+    
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 @login_required
 def toggle_camera_ai(request):
     """Toggle AI detection for a camera"""
     if request.method == 'POST':
-        data = json.loads(request.body)
-        camera_id = data.get('camera_id')
-        ai_enabled = data.get('ai_enabled')
-        
-        with stream_lock:
-            if camera_id in active_camera_streams:
-                active_camera_streams[camera_id]['ai_enabled'] = ai_enabled
-                
-                return JsonResponse({
-                    'status': 'success',
-                    'message': f'AI {"enabled" if ai_enabled else "disabled"} for camera {camera_id}'
-                })
-        
-        return JsonResponse({'error': 'Camera stream not found'}, status=404)
+        try:
+            data = json.loads(request.body)
+            camera_id = data.get('camera_id')
+            ai_enabled = data.get('ai_enabled')
+            
+            with stream_lock:
+                if camera_id in active_camera_streams:
+                    active_camera_streams[camera_id]['ai_enabled'] = ai_enabled
+                    
+                    return JsonResponse({
+                        'status': 'success',
+                        'message': f'AI {"enabled" if ai_enabled else "disabled"} for camera {camera_id}'
+                    })
+            
+            return JsonResponse({'error': 'Camera stream not found'}, status=404)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)
+    
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 @login_required
 def get_camera_status(request, camera_id):
@@ -822,4 +1151,3 @@ def reports(request):
         'SUPABASE_URL': settings.SUPABASE_URL,
         'SUPABASE_ANON_KEY': settings.SUPABASE_ANON_KEY,
     })
-

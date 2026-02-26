@@ -74,6 +74,174 @@
         color: #64748B;
         font-size: 1.1em;
     }
+
+    /* Tab Navigation */
+    .tab-nav {
+        display: flex;
+        gap: 0.5rem;
+        border-bottom: 2px solid #334155;
+        margin-bottom: 1.5rem;
+    }
+    
+    .tab-btn {
+        padding: 0.75rem 1.5rem;
+        background: transparent;
+        border: none;
+        color: #94A3B8;
+        font-weight: 600;
+        cursor: pointer;
+        position: relative;
+        transition: all 0.3s ease;
+    }
+    
+    .tab-btn:hover {
+        color: white;
+    }
+    
+    .tab-btn.active {
+        color: #38BDF8;
+    }
+    
+    .tab-btn.active::after {
+        content: '';
+        position: absolute;
+        bottom: -2px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: #38BDF8;
+    }
+    
+    .tab-pane {
+        display: none;
+    }
+    
+    .tab-pane.active {
+        display: block;
+    }
+
+    /* Upload Area Styles */
+    .upload-area {
+        background: #1E293B;
+        border: 2px dashed #334155;
+        border-radius: 12px;
+        padding: 2rem;
+        text-align: center;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        margin-top: 1rem;
+    }
+    
+    .upload-area:hover {
+        border-color: #38BDF8;
+        background: rgba(56, 189, 248, 0.1);
+    }
+    
+    .upload-area.dragover {
+        border-color: #4ADE80;
+        background: rgba(74, 222, 128, 0.1);
+    }
+    
+    .processing-item {
+        background: #0F172A;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    
+    .processing-progress {
+        flex: 1;
+        height: 6px;
+        background: #334155;
+        border-radius: 3px;
+        overflow: hidden;
+    }
+    
+    .progress-bar {
+        height: 100%;
+        background: #38BDF8;
+        transition: width 0.3s ease;
+    }
+    
+    .processing-status {
+        font-size: 0.875rem;
+        color: #94A3B8;
+    }
+    
+    .result-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    
+    .badge-crash {
+        background: rgba(239, 68, 68, 0.2);
+        color: #EF4444;
+        border: 1px solid #EF4444;
+    }
+    
+    .badge-safe {
+        background: rgba(74, 222, 128, 0.2);
+        color: #4ADE80;
+        border: 1px solid #4ADE80;
+    }
+    
+    .badge-processing {
+        background: rgba(251, 191, 36, 0.2);
+        color: #FBBF24;
+        border: 1px solid #FBBF24;
+    }
+
+    /* Video Modal */
+    .video-modal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.9);
+        z-index: 10000;
+        backdrop-filter: blur(5px);
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .video-modal-content {
+        width: 90%;
+        max-width: 800px;
+        background: #1E293B;
+        border: 2px solid #334155;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    
+    .video-modal-header {
+        padding: 1rem;
+        border-bottom: 2px solid #334155;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .video-modal-body {
+        padding: 1rem;
+    }
+    
+    .video-modal video {
+        width: 100%;
+        max-height: 450px;
+        border-radius: 8px;
+    }
+
+    /* Stats Cards */
+    .stats-card {
+        background: #1E293B;
+        border-radius: 8px;
+        padding: 1rem;
+        border: 1px solid #334155;
+    }
 </style>
 {% endblock %}
 
@@ -82,157 +250,269 @@
     <h2 class="text-2xl font-bold flex items-center gap-2">
         <i class="bi bi-broadcast text-sky"></i> Live Crash Detection Monitor
     </h2>
-    <p class="text-gray-400 mt-2">Real-time AI-powered crash detection from any RTSP stream</p>
+    <p class="text-gray-400 mt-2">Real-time AI-powered crash detection from any RTSP stream or upload videos for analysis</p>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- Left Column - Video Stream -->
-    <div class="lg:col-span-2">
-        <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
-            <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
-                <i class="bi bi-play-circle text-sky"></i> Live Feed
-            </h3>
-            
-            <div class="connection-status disconnected" id="connectionStatus">
-                <i class="fas fa-times-circle mr-2"></i> No RTSP URL configured
-            </div>
-            
-            <div class="mt-4">
-                <img id="videoStream" class="video-player placeholder-stream" src="" alt="Live Stream">
-            </div>
-            
-            <div class="grid grid-cols-3 gap-4 mt-6">
-                <div class="stats-panel text-center">
-                    <div class="text-gray-400 text-sm">Latency</div>
-                    <div class="stat-value" id="latencyValue">-- ms</div>
-                </div>
-                <div class="stats-panel text-center">
-                    <div class="text-gray-400 text-sm">Frames Processed</div>
-                    <div class="stat-value" id="framesValue">0</div>
-                </div>
-                <div class="stats-panel text-center">
-                    <div class="text-gray-400 text-sm">Status</div>
-                    <div class="stat-value" id="statusValue">
-                        <span class="text-alert">🔴 Offline</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="streamError" class="mt-6 p-4 bg-alert/20 border border-alert rounded-lg" style="display: none;">
-                <h5 class="text-alert font-bold mb-2 flex items-center gap-2">
-                    <i class="fas fa-exclamation-triangle"></i> Stream Connection Error
-                </h5>
-                <p id="errorDetails" class="text-graylight mb-3"></p>
-                <button class="bg-gold hover:bg-gold/80 text-gray-900 px-4 py-2 rounded transition flex items-center gap-2" onclick="retryConnection()">
-                    <i class="fas fa-sync-alt"></i> Retry Connection
-                </button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Right Column - Controls and Configuration -->
-    <div class="space-y-6">
-        <!-- RTSP URL Input Section -->
-        <div class="url-input-container">
-            <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
-                <i class="bi bi-input-cursor-text text-sky"></i> Stream Configuration
-            </h3>
-            
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-400 mb-2">RTSP Stream URL</label>
-                    <input type="text" 
-                           id="rtspUrlInput" 
-                           placeholder="rtsp://192.168.1.100:554/stream"
-                           class="w-full px-4 py-3 bg-darkbg border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-sky focus:ring-1 focus:ring-sky transition"
-                           value="rtsp://192.168.1.183:8080/h264.sdp">
-                    <p class="text-xs text-gray-500 mt-2">
-                        Supported: RTSP, HTTP, HTTPS streams
-                    </p>
-                </div>
-                
-                <!-- Quick Presets -->
-                <div>
-                    <label class="block text-sm font-medium text-gray-400 mb-2">Quick Presets:</label>
-                    <div class="flex flex-wrap gap-2">
-                        <button class="text-xs bg-darkbg hover:bg-sky/20 text-gray-300 px-3 py-1 rounded border border-gray-600 transition hover:border-sky"
-                                onclick="setPresetUrl('rtsp://192.168.1.100:554/stream')">
-                            Local IP Cam
-                        </button>
-                        <button class="text-xs bg-darkbg hover:bg-sky/20 text-gray-300 px-3 py-1 rounded border border-gray-600 transition hover:border-sky"
-                                onclick="setPresetUrl('http://localhost:8080/video')">
-                            Local Webcam
-                        </button>
-                        <button class="text-xs bg-darkbg hover:bg-sky/20 text-gray-300 px-3 py-1 rounded border border-gray-600 transition hover:border-sky"
-                                onclick="setPresetUrl('rtsp://192.168.1.183:8080/h264.sdp')">
-                            IP Webcam
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- Action Buttons -->
-                <div class="grid grid-cols-2 gap-2">
-                    <button id="testConnectionBtn" 
-                            class="w-full bg-gold hover:bg-gold/80 text-gray-900 py-3 px-4 rounded-lg transition flex items-center justify-center gap-2 font-semibold"
-                            onclick="testConnection()">
-                        <i class="bi bi-plug"></i> Test
-                    </button>
-                    <button id="saveUrlBtn" 
-                            class="w-full bg-sky hover:bg-sky/80 text-white py-3 px-4 rounded-lg transition flex items-center justify-center gap-2 font-semibold"
-                            onclick="saveRtspUrl()">
-                        <i class="bi bi-check-lg"></i> Save
-                    </button>
-                </div>
-            </div>
-        </div>
+<!-- Tab Navigation -->
+<div class="tab-nav">
+    <button class="tab-btn active" onclick="switchTab('live')" id="tab-live-btn">
+        <i class="bi bi-broadcast mr-2"></i>Live RTSP Monitor
+    </button>
+    <button class="tab-btn" onclick="switchTab('upload')" id="tab-upload-btn">
+        <i class="bi bi-cloud-upload mr-2"></i>Upload & Analyze
+    </button>
+    <button class="tab-btn" onclick="switchTab('history')" id="tab-history-btn">
+        <i class="bi bi-clock-history mr-2"></i>Analysis History
+    </button>
+</div>
 
-        <!-- Detection Status -->
-        <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
-            <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
-                <i class="bi bi-activity text-sky"></i> Detection Status
-            </h3>
-            
-            <div id="statusAlert" class="p-4 rounded-lg border-2 border-gray-600">
-                <h5 id="statusText" class="text-xl font-bold text-gray-400">⚪ READY</h5>
-                <p id="statusDetails" class="text-graylight mt-2">Configure RTSP URL to begin monitoring</p>
-            </div>
-            
-            <div class="controls mt-6 space-y-3">
-                <button id="startBtn" class="w-full bg-greenlight hover:bg-greenlight/80 text-white py-3 rounded-lg transition flex items-center justify-center gap-2 font-semibold" onclick="startMonitoring()" disabled>
-                    <i class="fas fa-play"></i> Start Monitoring
-                </button>
-                <button id="stopBtn" class="w-full bg-alert hover:bg-alert/80 text-white py-3 rounded-lg transition flex items-center justify-center gap-2 font-semibold" onclick="stopMonitoring()" disabled>
-                    <i class="fas fa-stop"></i> Stop Monitoring
-                </button>
+<!-- Live RTSP Monitor Tab -->
+<div class="tab-pane active" id="tab-live">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Left Column - Video Stream -->
+        <div class="lg:col-span-2">
+            <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
+                <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <i class="bi bi-play-circle text-sky"></i> Live Feed
+                </h3>
+                
+                <div class="connection-status disconnected" id="connectionStatus">
+                    <i class="fas fa-times-circle mr-2"></i> No RTSP URL configured
+                </div>
+                
+                <div class="mt-4">
+                    <img id="videoStream" class="video-player placeholder-stream" src="" alt="Live Stream">
+                </div>
+                
+                <div class="grid grid-cols-3 gap-4 mt-6">
+                    <div class="stats-panel text-center">
+                        <div class="text-gray-400 text-sm">Latency</div>
+                        <div class="stat-value" id="latencyValue">-- ms</div>
+                    </div>
+                    <div class="stats-panel text-center">
+                        <div class="text-gray-400 text-sm">Frames Processed</div>
+                        <div class="stat-value" id="framesValue">0</div>
+                    </div>
+                    <div class="stats-panel text-center">
+                        <div class="text-gray-400 text-sm">Status</div>
+                        <div class="stat-value" id="statusValue">
+                            <span class="text-alert">🔴 Offline</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="streamError" class="mt-6 p-4 bg-alert/20 border border-alert rounded-lg" style="display: none;">
+                    <h5 class="text-alert font-bold mb-2 flex items-center gap-2">
+                        <i class="fas fa-exclamation-triangle"></i> Stream Connection Error
+                    </h5>
+                    <p id="errorDetails" class="text-graylight mb-3"></p>
+                    <button class="bg-gold hover:bg-gold/80 text-gray-900 px-4 py-2 rounded transition flex items-center gap-2" onclick="retryConnection()">
+                        <i class="fas fa-sync-alt"></i> Retry Connection
+                    </button>
+                </div>
             </div>
         </div>
         
-        <!-- Current Stream Info -->
-        <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
-            <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
-                <i class="bi bi-info-circle text-sky"></i> Stream Information
-            </h3>
+        <!-- Right Column - Controls and Configuration -->
+        <div class="space-y-6">
+            <!-- RTSP URL Input Section -->
+            <div class="url-input-container">
+                <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <i class="bi bi-input-cursor-text text-sky"></i> Stream Configuration
+                </h3>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">RTSP Stream URL</label>
+                        <input type="text" 
+                               id="rtspUrlInput" 
+                               placeholder="rtsp://192.168.1.100:554/stream"
+                               class="w-full px-4 py-3 bg-darkbg border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-sky focus:ring-1 focus:ring-sky transition"
+                               value="rtsp://192.168.1.183:8080/h264.sdp">
+                        <p class="text-xs text-gray-500 mt-2">
+                            Supported: RTSP, HTTP, HTTPS streams
+                        </p>
+                    </div>
+                    
+                    <!-- Quick Presets -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Quick Presets:</label>
+                        <div class="flex flex-wrap gap-2">
+                            <button class="text-xs bg-darkbg hover:bg-sky/20 text-gray-300 px-3 py-1 rounded border border-gray-600 transition hover:border-sky"
+                                    onclick="setPresetUrl('rtsp://192.168.1.100:554/stream')">
+                                Local IP Cam
+                            </button>
+                            <button class="text-xs bg-darkbg hover:bg-sky/20 text-gray-300 px-3 py-1 rounded border border-gray-600 transition hover:border-sky"
+                                    onclick="setPresetUrl('http://localhost:8080/video')">
+                                Local Webcam
+                            </button>
+                            <button class="text-xs bg-darkbg hover:bg-sky/20 text-gray-300 px-3 py-1 rounded border border-gray-600 transition hover:border-sky"
+                                    onclick="setPresetUrl('rtsp://192.168.1.183:8080/h264.sdp')">
+                                IP Webcam
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="testConnectionBtn" 
+                                class="w-full bg-gold hover:bg-gold/80 text-gray-900 py-3 px-4 rounded-lg transition flex items-center justify-center gap-2 font-semibold"
+                                onclick="testConnection()">
+                            <i class="bi bi-plug"></i> Test
+                        </button>
+                        <button id="saveUrlBtn" 
+                                class="w-full bg-sky hover:bg-sky/80 text-white py-3 px-4 rounded-lg transition flex items-center justify-center gap-2 font-semibold"
+                                onclick="saveRtspUrl()">
+                            <i class="bi bi-check-lg"></i> Save
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detection Status -->
+            <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
+                <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <i class="bi bi-activity text-sky"></i> Detection Status
+                </h3>
+                
+                <div id="statusAlert" class="p-4 rounded-lg border-2 border-gray-600">
+                    <h5 id="statusText" class="text-xl font-bold text-gray-400">⚪ READY</h5>
+                    <p id="statusDetails" class="text-graylight mt-2">Configure RTSP URL to begin monitoring</p>
+                </div>
+                
+                <div class="controls mt-6 space-y-3">
+                    <button id="startBtn" class="w-full bg-greenlight hover:bg-greenlight/80 text-white py-3 rounded-lg transition flex items-center justify-center gap-2 font-semibold" onclick="startMonitoring()" disabled>
+                        <i class="fas fa-play"></i> Start Monitoring
+                    </button>
+                    <button id="stopBtn" class="w-full bg-alert hover:bg-alert/80 text-white py-3 rounded-lg transition flex items-center justify-center gap-2 font-semibold" onclick="stopMonitoring()" disabled>
+                        <i class="fas fa-stop"></i> Stop Monitoring
+                    </button>
+                </div>
+            </div>
             
-            <div class="space-y-3 text-sm">
-                <div class="flex justify-between">
-                    <span class="text-gray-400">Current URL:</span>
-                    <span id="currentUrlDisplay" class="text-graylight font-mono text-xs">Not set</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-gray-400">Connection:</span>
-                    <span id="streamStatus" class="text-alert">Disconnected</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-gray-400">Last Update:</span>
-                    <span id="lastUpdate" class="text-graylight">--</span>
+            <!-- Current Stream Info -->
+            <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
+                <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <i class="bi bi-info-circle text-sky"></i> Stream Information
+                </h3>
+                
+                <div class="space-y-3 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Current URL:</span>
+                        <span id="currentUrlDisplay" class="text-graylight font-mono text-xs">Not set</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Connection:</span>
+                        <span id="streamStatus" class="text-alert">Disconnected</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Last Update:</span>
+                        <span id="lastUpdate" class="text-graylight">--</span>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- How It Works Section -->
-<div class="mt-8 bg-cardbg rounded-xl p-6 border border-gray-600">
+<!-- Upload & Analyze Tab -->
+<div class="tab-pane" id="tab-upload">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Left Column - Upload Area -->
+        <div class="lg:col-span-2">
+            <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
+                <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <i class="bi bi-cloud-upload text-sky"></i> Upload Video for Analysis
+                </h3>
+                
+                <!-- Upload Area -->
+                <div class="upload-area" id="uploadArea" onclick="document.getElementById('videoInput').click()">
+                    <i class="bi bi-film text-5xl text-gray-500 mb-3"></i>
+                    <p class="text-gray-300 text-lg mb-2">Drag & drop video or click to upload</p>
+                    <p class="text-sm text-gray-500">Supported: MP4, AVI, MOV, MKV (Max 500MB)</p>
+                    <input type="file" id="videoInput" accept="video/*" style="display: none;" onchange="handleVideoUpload(this)">
+                </div>
+                
+                <!-- Processing Queue -->
+                <div class="mt-6">
+                    <h4 class="font-semibold mb-3 flex items-center gap-2">
+                        <i class="bi bi-hourglass-split text-gold"></i> Currently Processing
+                    </h4>
+                    <div id="processingQueue" class="space-y-2">
+                        <div class="text-center text-gray-500 py-4">
+                            <i class="bi bi-arrow-repeat animate-spin mr-2"></i>
+                            No videos in queue
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Right Column - Upload Stats -->
+        <div class="space-y-6">
+            <!-- Quick Stats -->
+            <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
+                <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <i class="bi bi-bar-chart text-sky"></i> Analysis Statistics
+                </h3>
+                
+                <div class="space-y-4">
+                    <div class="stats-card">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Total Analyzed</span>
+                            <span class="text-2xl font-bold text-sky" id="totalAnalyzed">0</span>
+                        </div>
+                    </div>
+                    <div class="stats-card">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Crashes Detected</span>
+                            <span class="text-2xl font-bold text-alert" id="totalCrashes">0</span>
+                        </div>
+                    </div>
+                    <div class="stats-card">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Safe Videos</span>
+                            <span class="text-2xl font-bold text-greenlight" id="totalSafe">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tips -->
+            <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
+                <h3 class="text-lg font-bold mb-3 flex items-center gap-2">
+                    <i class="bi bi-lightbulb text-gold"></i> Upload Tips
+                </h3>
+                <ul class="space-y-2 text-sm text-gray-400">
+                    <li>• Videos are processed in the background</li>
+                    <li>• You can continue using live monitoring</li>
+                    <li>• Results appear in History tab</li>
+                    <li>• Processed videos can be downloaded</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- History Tab -->
+<div class="tab-pane" id="tab-history">
+    <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
+        <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+            <i class="bi bi-clock-history text-sky"></i> Analysis History
+        </h3>
+        
+        <div id="historyList" class="space-y-3">
+            <!-- History items will be loaded here -->
+            <div class="text-center text-gray-500 py-8">
+                <i class="bi bi-clock-history text-4xl opacity-30 mb-3"></i>
+                <p>No analysis history yet</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- How It Works Section (shown in live tab only) -->
+<div class="mt-8 bg-cardbg rounded-xl p-6 border border-gray-600" id="howItWorks">
     <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
         <i class="bi bi-question-circle text-sky"></i> Connection Tips
     </h3>
@@ -290,6 +570,35 @@
         </div>
     </div>
 </div>
+
+<!-- Video Results Modal -->
+<div class="video-modal" id="videoModal">
+    <div class="video-modal-content">
+        <div class="video-modal-header">
+            <h3 class="font-bold flex items-center gap-2">
+                <i class="bi bi-camera-reels text-sky"></i>
+                <span id="modalTitle">Analysis Results</span>
+            </h3>
+            <button onclick="closeVideoModal()" class="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
+        </div>
+        <div class="video-modal-body">
+            <div id="modalCrashAlert" class="mb-4 p-3 rounded-lg hidden"></div>
+            <video id="modalVideo" controls class="w-full rounded-lg" style="display: none;"></video>
+            <div id="modalNoVideo" class="text-center py-8 text-gray-400 hidden">
+                <i class="bi bi-film text-4xl opacity-30 mb-3"></i>
+                <p>Processed video not available</p>
+            </div>
+            <div class="mt-4 flex gap-2 justify-end">
+                <a id="downloadBtn" href="#" class="bg-greenlight hover:bg-green-600 text-white px-4 py-2 rounded-lg transition flex items-center gap-2" style="display: none;">
+                    <i class="bi bi-download"></i> Download
+                </a>
+                <button onclick="closeVideoModal()" class="bg-[#334155] hover:bg-[#3b4a5f] text-white px-4 py-2 rounded-lg transition">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -300,11 +609,14 @@
     let statusUpdateInterval;
     let timestampInterval;
     let currentRtspUrl = '';
+    let processingVideos = {};
     
     // Load saved RTSP URL on page load
     document.addEventListener('DOMContentLoaded', function() {
         loadSavedRtspUrl();
         updateTimestamp();
+        loadStats();
+        loadHistory();
         
         // Auto-load the preset URL for testing
         setTimeout(() => {
@@ -312,8 +624,62 @@
                 setPresetUrl('rtsp://192.168.1.183:8080/h264.sdp');
             }
         }, 1000);
+        
+        // Setup drag and drop for upload area
+        const uploadArea = document.getElementById('uploadArea');
+        if (uploadArea) {
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type.startsWith('video/')) {
+                    uploadVideo(files[0]);
+                } else {
+                    showNotification('Please drop a video file', 'error');
+                }
+            });
+        }
+        
+        // Prevent default drag/drop on whole page
+        document.body.addEventListener('dragover', (e) => e.preventDefault());
+        document.body.addEventListener('drop', (e) => e.preventDefault());
     });
     
+    // ===== TAB SWITCHING =====
+    function switchTab(tabName) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(`tab-${tabName}-btn`).classList.add('active');
+        
+        document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+        
+        // Hide "How It Works" section in non-live tabs
+        const howItWorks = document.getElementById('howItWorks');
+        if (tabName === 'live') {
+            howItWorks.style.display = 'block';
+        } else {
+            howItWorks.style.display = 'none';
+        }
+        
+        // Load data if needed
+        if (tabName === 'history') {
+            loadHistory();
+        } else if (tabName === 'upload') {
+            loadStats();
+        }
+    }
+    
+    // ===== RTSP FUNCTIONS (your existing code) =====
     function loadSavedRtspUrl() {
         fetch("{% url 'get_rtsp_status' %}")
             .then(response => response.json())
@@ -333,7 +699,6 @@
     
     function setPresetUrl(url) {
         document.getElementById('rtspUrlInput').value = url;
-        // Auto-test the connection when preset is selected
         setTimeout(() => testConnection(), 500);
     }
     
@@ -355,7 +720,6 @@
         document.getElementById('testConnectionBtn').disabled = true;
         document.getElementById('testConnectionBtn').innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Testing...';
         
-        // Create a test image to check if the stream is accessible
         const testImg = new Image();
         let testTimeout = setTimeout(() => {
             testImg.onerror = null;
@@ -383,7 +747,6 @@
             document.getElementById('testConnectionBtn').innerHTML = '<i class="bi bi-plug"></i> Test';
         };
         
-        // Use a direct image request for testing
         testImg.src = url + '?t=' + new Date().getTime();
     }
     
@@ -394,7 +757,6 @@
             return;
         }
         
-        // Basic URL validation
         if (!url.startsWith('rtsp://') && !url.startsWith('http://') && !url.startsWith('https://')) {
             showError('Please enter a valid URL starting with rtsp://, http://, or https://');
             return;
@@ -428,7 +790,6 @@
                 updateConnectionStatus('disconnected', 'RTSP URL saved - Ready to connect');
                 hideError();
                 
-                // Show success message
                 const statusAlert = document.getElementById('statusAlert');
                 statusAlert.className = "p-4 rounded-lg border-2 border-greenlight alert-safe";
                 document.getElementById('statusText').innerHTML = "✅ URL SAVED";
@@ -515,15 +876,13 @@
                 throw new Error(data.error || 'Failed to start monitoring');
             }
             
-            // Set the stream source with cache busting
             const timestamp = new Date().getTime();
             const streamUrl = "{% url 'rtsp_stream' %}?t=" + timestamp;
             const videoElement = document.getElementById('videoStream');
             
-            // Remove placeholder class when stream starts
             videoElement.classList.remove('placeholder-stream');
-            
             videoElement.src = streamUrl;
+            
             videoElement.onload = function() {
                 console.log("Stream loaded successfully");
                 updateConnectionStatus('connected', 'Live monitoring active');
@@ -544,11 +903,9 @@
             
             isMonitoring = true;
             
-            // Start status updates every 2 seconds
             clearInterval(statusUpdateInterval);
             statusUpdateInterval = setInterval(updateStatus, 2000);
             
-            // Update timestamp continuously
             clearInterval(timestampInterval);
             timestampInterval = setInterval(updateTimestamp, 1000);
         })
@@ -567,12 +924,10 @@
             .then(data => {
                 console.log("Monitoring stopped:", data);
                 
-                // Clear the video stream and show placeholder
                 const videoElement = document.getElementById('videoStream');
                 videoElement.src = "";
                 videoElement.classList.add('placeholder-stream');
                 
-                // Update UI
                 document.getElementById('statusText').textContent = "⏹ MONITORING STOPPED";
                 document.getElementById('statusDetails').textContent = "Press start to begin monitoring";
                 document.getElementById('startBtn').disabled = false;
@@ -581,11 +936,9 @@
                 updateConnectionStatus('disconnected', 'Monitoring stopped');
                 isMonitoring = false;
                 
-                // Clear intervals
                 clearInterval(statusUpdateInterval);
                 clearInterval(timestampInterval);
                 
-                // Reset stats
                 document.getElementById('latencyValue').textContent = "-- ms";
                 document.getElementById('framesValue').textContent = "0";
                 document.getElementById('statusValue').innerHTML = '<span class="text-alert">🔴 Offline</span>';
@@ -610,7 +963,6 @@
                 const statusText = document.getElementById('statusText');
                 const statusDetails = document.getElementById('statusDetails');
                 
-                // Parse the response
                 let crashDetected = false;
                 let latency = "0";
                 let frames = "0";
@@ -629,11 +981,9 @@
                     });
                 }
                 
-                // Update stats panel
                 document.getElementById('latencyValue').textContent = latency + " ms";
                 document.getElementById('framesValue').textContent = frames;
                 
-                // Update status alert
                 if (crashDetected) {
                     statusAlert.className = "p-4 rounded-lg border-2 border-alert alert-crash";
                     statusText.innerHTML = "🚨 CRASH DETECTED!";
@@ -653,6 +1003,220 @@
     function updateTimestamp() {
         const now = new Date();
         document.getElementById('lastUpdate').textContent = now.toLocaleTimeString();
+    }
+    
+    // ===== VIDEO UPLOAD FUNCTIONS =====
+    function handleVideoUpload(input) {
+        if (input.files.length > 0) {
+            uploadVideo(input.files[0]);
+        }
+    }
+    
+    function uploadVideo(file) {
+        if (file.size > 500 * 1024 * 1024) {
+            showNotification('File too large (max 500MB)', 'error');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('video_file', file);
+        
+        const tempId = 'temp_' + Date.now();
+        addToProcessingQueue(tempId, file.name);
+        
+        fetch('/upload-video/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                removeFromProcessingQueue(tempId);
+                processingVideos[data.video_id] = {
+                    id: data.video_id,
+                    name: file.name,
+                    status: 'processing'
+                };
+                startStatusPolling(data.video_id);
+                showNotification('Video uploaded, processing started', 'success');
+            } else {
+                removeFromProcessingQueue(tempId);
+                showNotification(data.error || 'Upload failed', 'error');
+            }
+        })
+        .catch(error => {
+            removeFromProcessingQueue(tempId);
+            showNotification('Upload error: ' + error.message, 'error');
+        });
+        
+        document.getElementById('videoInput').value = '';
+    }
+    
+    function addToProcessingQueue(id, fileName) {
+        const queue = document.getElementById('processingQueue');
+        const placeholder = queue.querySelector('.text-center');
+        if (placeholder) placeholder.remove();
+        
+        const item = document.createElement('div');
+        item.className = 'processing-item';
+        item.id = `queue-${id}`;
+        item.innerHTML = `
+            <i class="bi bi-film text-sky"></i>
+            <div class="flex-1">
+                <p class="text-sm font-medium truncate max-w-[200px]">${fileName}</p>
+                <div class="processing-progress">
+                    <div class="progress-bar" style="width: 0%"></div>
+                </div>
+            </div>
+            <span class="processing-status">Starting...</span>
+        `;
+        queue.appendChild(item);
+    }
+    
+    function removeFromProcessingQueue(id) {
+        const item = document.getElementById(`queue-${id}`);
+        if (item) item.remove();
+        
+        const queue = document.getElementById('processingQueue');
+        if (queue.children.length === 0) {
+            queue.innerHTML = '<div class="text-center text-gray-500 py-4"><i class="bi bi-arrow-repeat animate-spin mr-2"></i>No videos in queue</div>';
+        }
+    }
+    
+    function updateQueueProgress(id, percent, status) {
+        const item = document.getElementById(`queue-${id}`);
+        if (item) {
+            item.querySelector('.progress-bar').style.width = percent + '%';
+            item.querySelector('.processing-status').textContent = status;
+        }
+    }
+    
+    function startStatusPolling(videoId) {
+        const pollInterval = setInterval(() => {
+            fetch(`/video-status/${videoId}/`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.processing_complete) {
+                        clearInterval(pollInterval);
+                        removeFromProcessingQueue(videoId);
+                        showResult(videoId, data);
+                        loadHistory();
+                        loadStats();
+                    } else {
+                        const progress = Math.min(90, parseInt(Date.now() / 100) % 90);
+                        updateQueueProgress(videoId, progress, 'Processing...');
+                    }
+                })
+                .catch(error => {
+                    console.error('Status poll error:', error);
+                });
+        }, 2000);
+    }
+    
+    function showResult(videoId, data) {
+        const crashDetected = data.crash_detected;
+        const message = crashDetected ? '🚨 Crash Detected in uploaded video!' : '✅ No crash detected';
+        const type = crashDetected ? 'error' : 'success';
+        showNotification(message, type);
+    }
+    
+    // ===== HISTORY & STATS =====
+    function loadHistory() {
+        fetch('/api/video-history/')
+            .then(response => response.json())
+            .then(data => {
+                const historyList = document.getElementById('historyList');
+                if (data.videos && data.videos.length > 0) {
+                    historyList.innerHTML = data.videos.map(video => `
+                        <div class="bg-darkbg p-4 rounded-lg flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <i class="bi bi-film text-sky"></i>
+                                <div>
+                                    <p class="text-sm font-medium">Video #${video.id}</p>
+                                    <p class="text-xs text-gray-500">${video.uploaded_at}</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="result-badge ${video.crash_detected ? 'badge-crash' : 'badge-safe'}">
+                                    ${video.crash_detected ? 'CRASH' : 'SAFE'}
+                                </span>
+                                ${video.processed_url ? `
+                                    <button onclick="viewVideo('${video.processed_url}', ${video.crash_detected})" 
+                                            class="text-sky hover:text-sky/80">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    historyList.innerHTML = '<div class="text-center text-gray-500 py-8"><i class="bi bi-clock-history text-4xl opacity-30 mb-3"></i><p>No analysis history yet</p></div>';
+                }
+            });
+    }
+    
+    function loadStats() {
+        fetch('/api/video-stats/')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('totalAnalyzed').textContent = data.total || 0;
+                document.getElementById('totalCrashes').textContent = data.crashes || 0;
+                document.getElementById('totalSafe').textContent = data.safe || 0;
+            });
+    }
+    
+    // ===== VIDEO MODAL =====
+    function viewVideo(videoUrl, crashDetected) {
+        const modal = document.getElementById('videoModal');
+        const video = document.getElementById('modalVideo');
+        const noVideo = document.getElementById('modalNoVideo');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const alertDiv = document.getElementById('modalCrashAlert');
+        
+        modal.style.display = 'flex';
+        
+        if (videoUrl) {
+            video.src = videoUrl;
+            video.style.display = 'block';
+            noVideo.style.display = 'none';
+            downloadBtn.href = videoUrl;
+            downloadBtn.style.display = 'inline-flex';
+        } else {
+            video.style.display = 'none';
+            noVideo.style.display = 'block';
+            downloadBtn.style.display = 'none';
+        }
+        
+        if (crashDetected) {
+            alertDiv.className = 'mb-4 p-3 rounded-lg bg-alert/20 border border-alert text-alert';
+            alertDiv.innerHTML = '<i class="bi bi-exclamation-triangle mr-2"></i>⚠️ CRASH DETECTED in this video';
+            alertDiv.style.display = 'block';
+        } else {
+            alertDiv.style.display = 'none';
+        }
+    }
+    
+    function closeVideoModal() {
+        const modal = document.getElementById('videoModal');
+        const video = document.getElementById('modalVideo');
+        modal.style.display = 'none';
+        video.pause();
+        video.src = '';
+    }
+    
+    // ===== NOTIFICATION =====
+    function showNotification(message, type = 'info') {
+        document.querySelectorAll('.notif-toast').forEach(n => n.remove());
+        const bg = { success: 'bg-greenlight', error: 'bg-alert', info: 'bg-sky', warn: 'bg-gold' }[type] ?? 'bg-sky';
+        const icon = { success: 'bi-check-circle', error: 'bi-exclamation-triangle', info: 'bi-info-circle', warn: 'bi-exclamation-circle' }[type] ?? 'bi-info-circle';
+        const el = document.createElement('div');
+        el.className = `notif-toast fixed top-4 right-4 p-4 rounded-lg ${bg} text-white z-[99999] shadow-xl transition-all duration-300`;
+        el.innerHTML = `<div class="flex items-center gap-2"><i class="bi ${icon}"></i><span>${message}</span></div>`;
+        document.body.appendChild(el);
+        setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateX(120%)'; setTimeout(() => el.remove(), 350); }, 4000);
     }
     
     function getCookie(name) {

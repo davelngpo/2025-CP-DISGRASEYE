@@ -6,6 +6,12 @@ class VideoUpload(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
     processed = models.BooleanField(default=False)
     crash_detected = models.BooleanField(default=False)
+    processing_complete = models.BooleanField(default=False)  # New field
     
     def __str__(self):
         return f"Video {self.id} - {'Crash' if self.crash_detected else 'No Crash'}"
+    
+    class Meta:
+        ordering = ['-uploaded_at']
+
+        

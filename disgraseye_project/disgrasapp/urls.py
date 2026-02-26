@@ -3,7 +3,8 @@ from . import views
 
 urlpatterns = [
     path('', views.landing_page, name='landing_page'),
-    #Login Logout path :)
+    
+    # Login/Logout
     path('login/', views.login_view, name='login'),
     path('dashboard/', views.dashboard, name='dashboard'),
     path('logout/', views.logout_view, name='logout'),
@@ -13,20 +14,25 @@ urlpatterns = [
     path('dashboard/reports/', views.reports, name='reports'),
     path('dashboard/settings/', views.site_settings, name='settings'),
 
-   # Video processing URLs
+    # ===== VIDEO UPLOAD AND PROCESSING URLS =====
+    path('upload-video/', views.process_uploaded_video, name='process_uploaded_video'),
+    path('video-status/<int:video_id>/', views.get_video_processing_status, name='video_status'),
+    path('api/video-history/', views.get_video_history, name='video_history_api'),
+    path('api/video-stats/', views.get_video_stats, name='video_stats_api'),
     path('download/<int:video_id>/', views.download_processed_video, name='download_processed_video'),
     path('view/<int:video_id>/', views.view_processed_video, name='view_processed_video'),
+    path('stream/<int:video_id>/', views.stream_processed_video, name='stream_processed_video'),
     
-    # RTSP Live Monitoring URLs
+    # ===== RTSP Live Monitoring URLs =====
     path('live/', views.live_monitoring, name='live_monitoring'),
     path('live/stream/', views.rtsp_stream, name='rtsp_stream'),
     path('live/start/', views.start_rtsp_monitoring, name='start_rtsp_monitoring'),
     path('live/stop/', views.stop_rtsp_monitoring, name='stop_rtsp_monitoring'),
-    path('live/status/', views.get_detection_status, name='get_detection_status'),  
-
+    path('live/status/', views.get_detection_status, name='get_detection_status'),
     path('start-rtsp-monitoring/', views.start_rtsp_monitoring, name='start_rtsp_monitoring'),
     path('get-rtsp-status/', views.get_rtsp_status, name='get_rtsp_status'),
 
+    # ===== Camera Stream URLs =====
     path('camera-stream/<str:camera_id>/', views.camera_stream, name='camera_stream'),
     path('start-camera-stream/', views.start_camera_stream, name='start_camera_stream'),
     path('stop-camera-stream/', views.stop_camera_stream, name='stop_camera_stream'),
