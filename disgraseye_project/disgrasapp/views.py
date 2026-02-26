@@ -67,7 +67,7 @@ def dashboard(request):
             }
         else:
             user_data = {
-                "user_id": supabase_user.get('id'),  # Fallback
+                "user_id": supabase_user.get('id'), 
                 "auth_id": supabase_user.get('id'),
                 "first_name": "",
                 "last_name": "",
@@ -94,32 +94,195 @@ def dashboard(request):
 
 @login_required
 def cctv_monitoring(request):
+    supabase_user = request.session.get('supabase_user', {})
+    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+    
+    try:
+        profile = supabase.table('users')\
+            .select('user_id, first_name, last_name, role')\
+            .eq('auth_id', supabase_user.get('id'))\
+            .single()\
+            .execute()
+        
+        if profile.data:
+            user_data = {
+                "user_id": profile.data['user_id'],
+                "auth_id": supabase_user.get('id'),
+                "first_name": profile.data.get('first_name', ''),
+                "last_name": profile.data.get('last_name', ''),
+                "role": profile.data.get('role', 'admin'),
+                "email": supabase_user.get('email')
+            }
+        else:
+            user_data = {
+                "user_id": supabase_user.get('id'),
+                "auth_id": supabase_user.get('id'),
+                "first_name": "",
+                "last_name": "",
+                "role": supabase_user.get('role', 'admin'),
+                "email": supabase_user.get('email')
+            }
+    except Exception as e:
+        print(f"Error fetching user profile: {e}")
+        user_data = {
+            "user_id": supabase_user.get('id'),
+            "auth_id": supabase_user.get('id'),
+            "first_name": "",
+            "last_name": "",
+            "role": supabase_user.get('role', 'admin'),
+            "email": supabase_user.get('email')
+        }
+    
     return render(request, 'dashboard/cctv_monitoring.html', {
         "SUPABASE_URL": settings.SUPABASE_URL,
         "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
+        "SUPABASE_SERVICE_ROLE_KEY": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "user": user_data 
     })
 
 @login_required
 def live_monitoring(request):
+    supabase_user = request.session.get('supabase_user', {})
+    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+    
+    try:
+        profile = supabase.table('users')\
+            .select('user_id, first_name, last_name, role')\
+            .eq('auth_id', supabase_user.get('id'))\
+            .single()\
+            .execute()
+        
+        if profile.data:
+            user_data = {
+                "user_id": profile.data['user_id'],
+                "auth_id": supabase_user.get('id'),
+                "first_name": profile.data.get('first_name', ''),
+                "last_name": profile.data.get('last_name', ''),
+                "role": profile.data.get('role', 'admin'),
+                "email": supabase_user.get('email')
+            }
+        else:
+            user_data = {
+                "user_id": supabase_user.get('id'),
+                "auth_id": supabase_user.get('id'),
+                "first_name": "",
+                "last_name": "",
+                "role": supabase_user.get('role', 'admin'),
+                "email": supabase_user.get('email')
+            }
+    except Exception as e:
+        print(f"Error fetching user profile: {e}")
+        user_data = {
+            "user_id": supabase_user.get('id'),
+            "auth_id": supabase_user.get('id'),
+            "first_name": "",
+            "last_name": "",
+            "role": supabase_user.get('role', 'admin'),
+            "email": supabase_user.get('email')
+        }
+    
     return render(request, 'dashboard/live_monitoring.html', {
         "SUPABASE_URL": settings.SUPABASE_URL,
         "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
+        "SUPABASE_SERVICE_ROLE_KEY": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "user": user_data 
     })
 
 @login_required
 def reports(request):
+    supabase_user = request.session.get('supabase_user', {})
+    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+    
+    try:
+        profile = supabase.table('users')\
+            .select('user_id, first_name, last_name, role')\
+            .eq('auth_id', supabase_user.get('id'))\
+            .single()\
+            .execute()
+        
+        if profile.data:
+            user_data = {
+                "user_id": profile.data['user_id'],
+                "auth_id": supabase_user.get('id'),
+                "first_name": profile.data.get('first_name', ''),
+                "last_name": profile.data.get('last_name', ''),
+                "role": profile.data.get('role', 'admin'),
+                "email": supabase_user.get('email')
+            }
+        else:
+            user_data = {
+                "user_id": supabase_user.get('id'),
+                "auth_id": supabase_user.get('id'),
+                "first_name": "",
+                "last_name": "",
+                "role": supabase_user.get('role', 'admin'),
+                "email": supabase_user.get('email')
+            }
+    except Exception as e:
+        print(f"Error fetching user profile: {e}")
+        user_data = {
+            "user_id": supabase_user.get('id'),
+            "auth_id": supabase_user.get('id'),
+            "first_name": "",
+            "last_name": "",
+            "role": supabase_user.get('role', 'admin'),
+            "email": supabase_user.get('email')
+        }
+    
     return render(request, 'dashboard/reports.html', {
         "SUPABASE_URL": settings.SUPABASE_URL,
         "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
+        "SUPABASE_SERVICE_ROLE_KEY": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "user": user_data 
     })
 
 @login_required
 def site_settings(request):
+    supabase_user = request.session.get('supabase_user', {})
+    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+    
+    try:
+        profile = supabase.table('users')\
+            .select('user_id, first_name, last_name, role')\
+            .eq('auth_id', supabase_user.get('id'))\
+            .single()\
+            .execute()
+        
+        if profile.data:
+            user_data = {
+                "user_id": profile.data['user_id'],
+                "auth_id": supabase_user.get('id'),
+                "first_name": profile.data.get('first_name', ''),
+                "last_name": profile.data.get('last_name', ''),
+                "role": profile.data.get('role', 'admin'),
+                "email": supabase_user.get('email')
+            }
+        else:
+            user_data = {
+                "user_id": supabase_user.get('id'),
+                "auth_id": supabase_user.get('id'),
+                "first_name": "",
+                "last_name": "",
+                "role": supabase_user.get('role', 'admin'),
+                "email": supabase_user.get('email')
+            }
+    except Exception as e:
+        print(f"Error fetching user profile: {e}")
+        user_data = {
+            "user_id": supabase_user.get('id'),
+            "auth_id": supabase_user.get('id'),
+            "first_name": "",
+            "last_name": "",
+            "role": supabase_user.get('role', 'admin'),
+            "email": supabase_user.get('email')
+        }
+    
     return render(request, 'dashboard/settings.html', {
         "SUPABASE_URL": settings.SUPABASE_URL,
         "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
+        "SUPABASE_SERVICE_ROLE_KEY": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "user": user_data 
     })
-
 
 def logout_view(request):
     request.session.flush()

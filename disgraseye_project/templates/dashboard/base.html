@@ -168,17 +168,41 @@
 
 <!-- ================= SCRIPT ================= -->
 <script>
+// Console log to verify script is running
+console.log("BASE TEMPLATE: Script starting");
+
+// Get user ID from multiple sources - UNIVERSAL FIX
+let USER_ID = null;
+
+// First try: session data directly (most reliable)
+{% if request.session.supabase_user %}
+    USER_ID = "{{ request.session.supabase_user.id }}";
+    console.log("🔵 Using session user ID:", USER_ID);
+{% else %}
+    // Second try: your custom user object
+    USER_ID = {{ user.user_id|default:'null' }};
+    console.log("🔵 Using template user ID:", USER_ID);
+{% endif %}
+
+const SUPABASE_URL = "{{ SUPABASE_URL|default:'https://ivigoibymrcvaftgayqv.supabase.co' }}";
+const SUPABASE_ANON_KEY = "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aWdvaWJ5bXJjdmFmdGdheXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MDI2MDgsImV4cCI6MjA3OTQ3ODYwOH0.c3MoFVyNGXwZ3zqtgWz62Du0WfA7pranyAXDwRpy5sw' }}";
+
+console.log("BASE TEMPLATE: User ID =", USER_ID);
+console.log("BASE TEMPLATE: Supabase URL exists =", SUPABASE_URL ? "Yes" : "No");
+
 // Supabase initialization
 let supabaseClient = null;
 
 function initSupabase() {
     if (!supabaseClient) {
         try {
-            const supabaseUrl = "{{ SUPABASE_URL }}";
-            const supabaseAnonKey = "{{ SUPABASE_ANON_KEY }}";
+            if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                console.error("Supabase credentials missing!");
+                return null;
+            }
             
-            supabaseClient = supabase.createClient(supabaseUrl, supabaseAnonKey);
-            console.log("Supabase initialized");
+            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            console.log("Supabase initialized successfully");
             window._supabase = supabaseClient;
         } catch (error) {
             console.error("Failed to initialize Supabase:", error);
@@ -187,6 +211,7 @@ function initSupabase() {
     return supabaseClient;
 }
 
+// Initialize immediately
 initSupabase();
 
 /* ELEMENTS */
@@ -233,73 +258,141 @@ function updateLastUpdate() {
 }
 
 /* DROPDOWN */
-notifBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    notifDropdown.classList.toggle("hidden");
-    if (!notifDropdown.classList.contains('hidden')) {
-        loadNotifications();
-    }
-});
+if (notifBtn) {
+    notifBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        notifDropdown.classList.toggle("hidden");
+        if (!notifDropdown.classList.contains('hidden')) {
+            loadNotifications();
+        }
+    });
+}
 
 document.addEventListener("click", (e) => {
-    if (!notifDropdown.contains(e.target) && !notifBtn.contains(e.target)) {
+    if (notifDropdown && notifBtn && !notifDropdown.contains(e.target) && !notifBtn.contains(e.target)) {
         notifDropdown.classList.add("hidden");
     }
 });
 
 /* MARK ALL READ */
-markAllReadBtn.addEventListener('click', async () => {
-    try {
-        const client = initSupabase();
-        if (!client) throw new Error("Supabase client not initialized");
-        
-        markAllReadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        markAllReadBtn.disabled = true;
-        
-        const { data: unreadAlerts, error: fetchError } = await client
-            .from("alerts")
-            .select("alert_id")
-            .eq("sent_to", {{ user.user_id }})
-            .eq("response_status", "Unacknowledged");
-        
-        if (fetchError) throw fetchError;
-        
-        if (!unreadAlerts || unreadAlerts.length === 0) {
-            showToast('No unread alerts', 'info');
-            return;
+if (markAllReadBtn) {
+    markAllReadBtn.addEventListener('click', async () => {
+        try {
+            const client = initSupabase();
+            if (!client) throw new Error("Supabase client not initialized");
+            
+            if (!USER_ID || USER_ID === 'null') {
+                showToast('User not logged in', 'error');
+                return;
+            }
+            
+            markAllReadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            markAllReadBtn.disabled = true;
+            
+            // Handle UUID vs Integer
+            const isUuid = typeof USER_ID === 'string' && USER_ID.includes('-');
+            let alertUserId = USER_ID;
+            
+            if (isUuid) {
+                const { data: userData } = await client
+                    .from("users")
+                    .select("user_id")
+                    .eq("auth_id", USER_ID)
+                    .maybeSingle();
+                    
+                if (userData) {
+                    alertUserId = userData.user_id;
+                }
+            }
+            
+            const { data: unreadAlerts, error: fetchError } = await client
+                .from("alerts")
+                .select("alert_id")
+                .eq("sent_to", alertUserId)
+                .eq("response_status", "Unacknowledged");
+            
+            if (fetchError) throw fetchError;
+            
+            if (!unreadAlerts || unreadAlerts.length === 0) {
+                showToast('No unread alerts', 'info');
+                return;
+            }
+            
+            const alertIds = unreadAlerts.map(a => a.alert_id);
+            
+            const { error: updateError } = await client
+                .from("alerts")
+                .update({ response_status: "Acknowledged" })
+                .in("alert_id", alertIds)
+                .eq("sent_to", alertUserId);
+            
+            if (updateError) throw updateError;
+            
+            showToast(`${alertIds.length} marked read`, 'success');
+            await loadNotifications();
+            
+        } catch (err) {
+            showToast('Failed: ' + err.message, 'error');
+        } finally {
+            markAllReadBtn.innerHTML = 'Mark all read';
+            markAllReadBtn.disabled = false;
         }
-        
-        const alertIds = unreadAlerts.map(a => a.alert_id);
-        
-        const { error: updateError } = await client
-            .from("alerts")
-            .update({ response_status: "Acknowledged" })
-            .in("alert_id", alertIds)
-            .eq("sent_to", {{ user.user_id }});
-        
-        if (updateError) throw updateError;
-        
-        showToast(`${alertIds.length} marked read`, 'success');
-        await loadNotifications();
-        
-    } catch (err) {
-        showToast('Failed: ' + err.message, 'error');
-    } finally {
-        markAllReadBtn.innerHTML = 'Mark all read';
-        markAllReadBtn.disabled = false;
-    }
-});
+    });
+}
 
-/* LOAD NOTIFICATIONS - COMPACT VERSION */
+/* LOAD NOTIFICATIONS - UNIVERSAL VERSION */
 async function loadNotifications() {
-    notifLoading.classList.remove("hidden");
-    notifEmpty.classList.add("hidden");
-    notifList.innerHTML = "";
+    // Don't try to load if no user ID
+    if (!USER_ID || USER_ID === 'null') {
+        console.log("No user ID available - skipping alerts");
+        if (notifLoading) notifLoading.classList.add("hidden");
+        if (notifEmpty) {
+            notifEmpty.classList.remove("hidden");
+            notifEmpty.innerHTML = '<i class="fas fa-user-slash text-lg mb-1"></i><p class="text-xs">Please log in</p>';
+        }
+        return;
+    }
+    
+    if (notifLoading) notifLoading.classList.remove("hidden");
+    if (notifEmpty) notifEmpty.classList.add("hidden");
+    if (notifList) notifList.innerHTML = "";
 
     try {
         const client = initSupabase();
         if (!client) throw new Error("Supabase client not initialized");
 
+        console.log("🔵 USER_ID from template:", USER_ID);
+        
+        // Check if USER_ID is a UUID (contains dashes) or integer
+        const isUuid = typeof USER_ID === 'string' && USER_ID.includes('-');
+        
+        let alertUserId = USER_ID;
+        
+        // If it's a UUID, we need to get the integer user_id first
+        if (isUuid) {
+            console.log("🔵 USER_ID is UUID, fetching integer user_id...");
+            
+            const { data: userData, error: userError } = await client
+                .from("users")
+                .select("user_id")
+                .eq("auth_id", USER_ID)
+                .maybeSingle();
+
+            if (userError) {
+                console.error("Error fetching user_id:", userError);
+                throw userError;
+            }
+
+            if (!userData) {
+                console.error("No user found with auth_id:", USER_ID);
+                throw new Error("User not found in database");
+            }
+
+            alertUserId = userData.user_id;
+            console.log("🔵 Found integer user_id:", alertUserId);
+        }
+
+        // Now fetch alerts using the correct user_id
         const { data, error } = await client
             .from("alerts")
             .select(`
@@ -312,11 +405,13 @@ async function loadNotifications() {
                     status
                 )
             `)
-            .eq("sent_to", {{ user.user_id }})
+            .eq("sent_to", alertUserId)
             .order("alert_time", { ascending: false })
             .limit(10);
 
         if (error) throw error;
+
+        console.log("🔵 Alerts loaded:", data?.length || 0);
 
         let unread = 0;
 
@@ -351,75 +446,103 @@ async function loadNotifications() {
                         break;
                 }
 
-                const shortMessage = alert.message.length > 35 
+                const shortMessage = alert.message && alert.message.length > 35 
                     ? alert.message.substring(0, 35) + '...' 
-                    : alert.message;
+                    : alert.message || 'No message';
 
-                notifList.innerHTML += `
-                    <li class="px-3 py-2 hover:bg-gray-800/50 ${bgColor} ${isUnread ? 'border-l-2 border-sky' : ''}">
-                        <div class="flex items-start gap-2">
-                            <i class="fas ${icon} ${colorClass} mt-0.5 text-xs"></i>
-                            <div class="flex-1 min-w-0">
-                                <p class="text-xs ${isUnread ? 'font-semibold' : ''}">${shortMessage}</p>
-                                <div class="flex items-center gap-2 mt-0.5 text-[10px] text-gray-500">
-                                    <span>${timeAgo(alert.alert_time)}</span>
-                                    <span>•</span>
-                                    <span class="capitalize">${alert.response_status}</span>
+                if (notifList) {
+                    notifList.innerHTML += `
+                        <li class="px-3 py-2 hover:bg-gray-800/50 ${bgColor} ${isUnread ? 'border-l-2 border-sky' : ''}">
+                            <div class="flex items-start gap-2">
+                                <i class="fas ${icon} ${colorClass} mt-0.5 text-xs"></i>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-xs ${isUnread ? 'font-semibold' : ''}">${shortMessage}</p>
+                                    <div class="flex items-center gap-2 mt-0.5 text-[10px] text-gray-500">
+                                        <span>${timeAgo(alert.alert_time)}</span>
+                                        <span>•</span>
+                                        <span class="capitalize">${alert.response_status || 'Unknown'}</span>
+                                    </div>
                                 </div>
+                                ${incidentStatus === 'Pending' && alert.detection_id ? `
+                                <button onclick="reviewAccident(${alert.detection_id})" 
+                                        class="text-[10px] bg-sky hover:bg-sky/80 text-white px-1.5 py-0.5 rounded flex-shrink-0">
+                                    Review
+                                </button>
+                                ` : ''}
+                                ${incidentStatus === 'Verified' && alert.detection_id ? `
+                                <button onclick="viewReport(${alert.detection_id})" 
+                                        class="text-[10px] bg-gray-600 hover:bg-gray-700 text-white px-1.5 py-0.5 rounded flex-shrink-0">
+                                    Report
+                                </button>
+                                ` : ''}
+                                ${alert.response_status === 'Unacknowledged' && !incidentStatus && alert.alert_id ? `
+                                <button onclick="acknowledgeAlert(${alert.alert_id})" 
+                                        class="text-[10px] bg-gray-600 hover:bg-gray-700 text-white px-1.5 py-0.5 rounded flex-shrink-0">
+                                    Ok
+                                </button>
+                                ` : ''}
                             </div>
-                            ${incidentStatus === 'Pending' ? `
-                            <button onclick="reviewAccident(${alert.detection_id})" 
-                                    class="text-[10px] bg-sky hover:bg-sky/80 text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                                Review
-                            </button>
-                            ` : ''}
-                            ${incidentStatus === 'Verified' ? `
-                            <button onclick="viewReport(${alert.detection_id})" 
-                                    class="text-[10px] bg-gray-600 hover:bg-gray-700 text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                                Report
-                            </button>
-                            ` : ''}
-                            ${alert.response_status === 'Unacknowledged' && !incidentStatus ? `
-                            <button onclick="acknowledgeAlert(${alert.alert_id})" 
-                                    class="text-[10px] bg-gray-600 hover:bg-gray-700 text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                                Ok
-                            </button>
-                            ` : ''}
-                        </div>
-                    </li>
-                `;
+                        </li>
+                    `;
+                }
             });
         } else {
-            notifEmpty.classList.remove("hidden");
+            if (notifEmpty) {
+                notifEmpty.classList.remove("hidden");
+                notifEmpty.innerHTML = '<i class="fas fa-bell-slash text-lg mb-1"></i><p class="text-xs">No alerts yet</p>';
+            }
         }
 
-        notifCount.textContent = unread;
-        notifCount.classList.toggle("hidden", unread === 0);
-        markAllReadBtn.classList.toggle("hidden", unread === 0);
+        if (notifCount) {
+            notifCount.textContent = unread;
+            notifCount.classList.toggle("hidden", unread === 0);
+        }
+        if (markAllReadBtn) markAllReadBtn.classList.toggle("hidden", unread === 0);
         
         updateLastUpdate();
         
     } catch (err) {
-        console.error("Error:", err);
-        notifList.innerHTML = `
-            <li class="p-3 text-center text-red-400 text-xs">
-                <i class="fas fa-exclamation-triangle"></i> Error loading
-            </li>
-        `;
+        console.error("Error loading notifications:", err);
+        if (notifList) {
+            notifList.innerHTML = `
+                <li class="p-3 text-center text-red-400 text-xs">
+                    <i class="fas fa-exclamation-triangle"></i> Error loading
+                </li>
+            `;
+        }
     } finally {
-        notifLoading.classList.add("hidden");
+        if (notifLoading) notifLoading.classList.add("hidden");
     }
 }
 
 /* ACKNOWLEDGE ALERT */
 async function acknowledgeAlert(alertId) {
+    if (!alertId) return;
+    
     try {
         const client = initSupabase();
+        
+        // Handle UUID vs Integer
+        const isUuid = typeof USER_ID === 'string' && USER_ID.includes('-');
+        let alertUserId = USER_ID;
+        
+        if (isUuid) {
+            const { data: userData } = await client
+                .from("users")
+                .select("user_id")
+                .eq("auth_id", USER_ID)
+                .maybeSingle();
+                
+            if (userData) {
+                alertUserId = userData.user_id;
+            }
+        }
+        
         await client
             .from("alerts")
             .update({ response_status: "Acknowledged" })
             .eq("alert_id", alertId)
-            .eq("sent_to", {{ user.user_id }});
+            .eq("sent_to", alertUserId);
         
         showToast('Alert acknowledged', 'success');
         await loadNotifications();
@@ -430,6 +553,8 @@ async function acknowledgeAlert(alertId) {
 
 /* REVIEW ACCIDENT */
 async function reviewAccident(detectionId) {
+    if (!detectionId) return;
+    
     try {
         const action = confirm(
             "Review Accident\n\nOK = Confirm\nCancel = False Alarm"
@@ -437,12 +562,28 @@ async function reviewAccident(detectionId) {
         
         const client = initSupabase();
         
+        // Handle UUID vs Integer
+        const isUuid = typeof USER_ID === 'string' && USER_ID.includes('-');
+        let alertUserId = USER_ID;
+        
+        if (isUuid) {
+            const { data: userData } = await client
+                .from("users")
+                .select("user_id")
+                .eq("auth_id", USER_ID)
+                .maybeSingle();
+                
+            if (userData) {
+                alertUserId = userData.user_id;
+            }
+        }
+        
         if (action) {
             await client
                 .from("accident_detections")
                 .update({ 
                     status: "Admin_Confirmed",
-                    verified_by: {{ user.user_id }}
+                    verified_by: alertUserId
                 })
                 .eq("accident_id", detectionId);
             
@@ -452,7 +593,7 @@ async function reviewAccident(detectionId) {
                 .from("accident_detections")
                 .update({ 
                     status: "False_Alarm",
-                    verified_by: {{ user.user_id }}
+                    verified_by: alertUserId
                 })
                 .eq("accident_id", detectionId);
             
@@ -472,106 +613,135 @@ async function reviewAccident(detectionId) {
 
 /* VIEW REPORT */
 async function viewReport(detectionId) {
-    window.location.href = `/reports/?detection=${detectionId}`;
+    if (detectionId) {
+        window.location.href = `/reports/?detection=${detectionId}`;
+    }
 }
 
 /* TEST ALERT */
-testAlertBtn.addEventListener('click', async () => {
-    const originalText = testAlertBtn.innerHTML;
-    
-    try {
-        testAlertBtn.disabled = true;
-        testAlertBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+if (testAlertBtn) {
+    testAlertBtn.addEventListener('click', async () => {
+        const originalText = testAlertBtn.innerHTML;
         
-        const client = initSupabase();
-        
-        // Get or create camera
-        let { data: cameras } = await client
-            .from("cctv")
-            .select("camera_id, location_name")
-            .limit(1);
-        
-        let cameraId, locationName;
-        
-        if (!cameras || cameras.length === 0) {
-            const { data: newCamera } = await client
+        try {
+            testAlertBtn.disabled = true;
+            testAlertBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            
+            const client = initSupabase();
+            if (!client) throw new Error("Supabase client not initialized");
+            
+            if (!USER_ID || USER_ID === 'null') {
+                throw new Error("User not logged in");
+            }
+            
+            // Handle UUID vs Integer for managed_by
+            const isUuid = typeof USER_ID === 'string' && USER_ID.includes('-');
+            let managedById = USER_ID;
+            
+            if (isUuid) {
+                const { data: userData } = await client
+                    .from("users")
+                    .select("user_id")
+                    .eq("auth_id", USER_ID)
+                    .maybeSingle();
+                    
+                if (userData) {
+                    managedById = userData.user_id;
+                }
+            }
+            
+            // Get or create camera
+            let { data: cameras } = await client
                 .from("cctv")
+                .select("camera_id, location_name")
+                .limit(1);
+            
+            let cameraId, locationName;
+            
+            if (!cameras || cameras.length === 0) {
+                const { data: newCamera } = await client
+                    .from("cctv")
+                    .insert({
+                        location_name: 'Test Camera',
+                        ip_address: '192.168.1.' + Math.floor(Math.random() * 254 + 1),
+                        status: 'Active',
+                        managed_by: managedById
+                    })
+                    .select()
+                    .single();
+                
+                cameraId = newCamera.camera_id;
+                locationName = newCamera.location_name;
+            } else {
+                cameraId = cameras[0].camera_id;
+                locationName = cameras[0].location_name;
+            }
+            
+            // Create accident
+            const { data: accident } = await client
+                .from("accident_detections")
                 .insert({
-                    location_name: 'Test Camera',
-                    ip_address: '192.168.1.' + Math.floor(Math.random() * 254 + 1),
-                    status: 'Active',
-                    managed_by: {{ user.user_id }}
+                    camera_id: cameraId,
+                    detection_time: new Date().toISOString(),
+                    status: 'Pending'
                 })
                 .select()
                 .single();
             
-            cameraId = newCamera.camera_id;
-            locationName = newCamera.location_name;
-        } else {
-            cameraId = cameras[0].camera_id;
-            locationName = cameras[0].location_name;
-        }
-        
-        // Create accident
-        const { data: accident } = await client
-            .from("accident_detections")
-            .insert({
-                camera_id: cameraId,
-                detection_time: new Date().toISOString(),
-                status: 'Pending'
-            })
-            .select()
-            .single();
-        
-        // Get admins
-        const { data: admins } = await client
-            .from("users")
-            .select("user_id")
-            .eq("role", "admin");
-        
-        // Create alerts
-        if (admins && admins.length > 0) {
-            const alerts = admins.map(admin => ({
-                detection_id: accident.accident_id,
-                sent_to: admin.user_id,
-                message: `Accident detected at ${locationName}`,
-                response_status: 'Unacknowledged'
-            }));
+            // Get admins
+            const { data: admins } = await client
+                .from("users")
+                .select("user_id")
+                .eq("role", "admin");
             
-            await client.from("alerts").insert(alerts);
-            showToast(`Alert sent to ${admins.length} admins`, 'success');
-        } else {
-            await client.from("alerts").insert({
-                detection_id: accident.accident_id,
-                sent_to: {{ user.user_id }},
-                message: `Accident detected at ${locationName}`,
-                response_status: 'Unacknowledged'
-            });
-            showToast('Test alert created', 'success');
+            // Create alerts
+            if (admins && admins.length > 0) {
+                const alerts = admins.map(admin => ({
+                    detection_id: accident.accident_id,
+                    sent_to: admin.user_id,
+                    message: `Accident detected at ${locationName}`,
+                    response_status: 'Unacknowledged'
+                }));
+                
+                await client.from("alerts").insert(alerts);
+                showToast(`Alert sent to ${admins.length} admins`, 'success');
+            } else {
+                await client.from("alerts").insert({
+                    detection_id: accident.accident_id,
+                    sent_to: managedById,
+                    message: `Accident detected at ${locationName}`,
+                    response_status: 'Unacknowledged'
+                });
+                showToast('Test alert created', 'success');
+            }
+            
+            await loadNotifications();
+            
+        } catch (err) {
+            showToast('Test failed: ' + err.message, 'error');
+        } finally {
+            testAlertBtn.disabled = false;
+            testAlertBtn.innerHTML = originalText;
         }
-        
-        await loadNotifications();
-        
-    } catch (err) {
-        showToast('Test failed', 'error');
-    } finally {
-        testAlertBtn.disabled = false;
-        testAlertBtn.innerHTML = originalText;
-    }
-});
+    });
+}
 
 /* REALTIME UPDATES */
 function setupRealtime() {
+    if (!USER_ID || USER_ID === 'null') {
+        console.log("No user ID - skipping realtime setup");
+        return;
+    }
+    
     const client = initSupabase();
     if (client) {
         client
-            .channel(`alerts-{{ user.user_id }}`)
+            .channel(`alerts-${USER_ID}`)
             .on("postgres_changes",
                 { 
                     event: "*", 
                     schema: "public", 
-                    table: "alerts",
-                    filter: `sent_to=eq.{{ user.user_id }}`
+                    table: "alerts"
                 },
                 () => {
                     loadNotifications();
@@ -583,6 +753,7 @@ function setupRealtime() {
 
 /* INITIALIZE */
 document.addEventListener("DOMContentLoaded", () => {
+    console.log("BASE TEMPLATE: DOMContentLoaded fired");
     updateLastUpdate();
     loadNotifications();
     setupRealtime();
@@ -594,6 +765,12 @@ document.addEventListener("DOMContentLoaded", () => {
 window.reviewAccident = reviewAccident;
 window.viewReport = viewReport;
 window.acknowledgeAlert = acknowledgeAlert;
+window.showToast = showToast;
+window.loadNotifications = loadNotifications;
+window.USER_ID = USER_ID;
+window.initSupabase = initSupabase;
+
+console.log("BASE TEMPLATE: Script finished loading");
 </script>
 
 {% block extra_scripts %}{% endblock %}

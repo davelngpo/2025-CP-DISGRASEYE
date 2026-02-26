@@ -175,6 +175,10 @@
 {% endblock %}
 
 {% block content %}
+<div class="bg-yellow-500/20 text-yellow-500 p-2 rounded mb-4 text-xs">
+    Debug - User ID from Django: {{ user.user_id|default:"NOT PASSED" }}<br>
+    User object: {{ user|default:"No user object" }}
+</div>
 <div class="mb-6">
     <h2 class="text-2xl font-bold flex items-center gap-2">
         <i class="bi bi-camera-video text-sky"></i> Live CCTV Monitoring

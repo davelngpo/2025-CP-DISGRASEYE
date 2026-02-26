@@ -13,6 +13,7 @@ urlpatterns = [
     path('dashboard/cctv/', views.cctv_monitoring, name='cctv_monitoring'),
     path('dashboard/reports/', views.reports, name='reports'),
     path('dashboard/settings/', views.site_settings, name='settings'),
+    path('dashboard/live_monitoring/', views.live_monitoring, name='live_monitoring'),
 
     # ===== VIDEO UPLOAD AND PROCESSING URLS =====
     path('upload-video/', views.process_uploaded_video, name='process_uploaded_video'),
@@ -24,7 +25,6 @@ urlpatterns = [
     path('stream/<int:video_id>/', views.stream_processed_video, name='stream_processed_video'),
     
     # ===== RTSP Live Monitoring URLs =====
-    path('live/', views.live_monitoring, name='live_monitoring'),
     path('live/stream/', views.rtsp_stream, name='rtsp_stream'),
     path('live/start/', views.start_rtsp_monitoring, name='start_rtsp_monitoring'),
     path('live/stop/', views.stop_rtsp_monitoring, name='stop_rtsp_monitoring'),

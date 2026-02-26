@@ -603,6 +603,19 @@
 
 {% block extra_scripts %}
 <script>
+    console.log("🔴 LIVE DETECTION: Script starting");
+    
+    // Check what's available from base template
+    console.log("🔴 window._supabase exists?", !!window._supabase);
+    console.log("🔴 window.showToast exists?", !!window.showToast);
+    console.log("🔴 window.USER_ID =", window.USER_ID);
+    
+    // Use base template's notification system
+    const showNotification = window.showToast || function(msg, type) {
+        console.log("Fallback notification:", msg, type);
+        alert(msg);
+    };
+    
     let isMonitoring = false;
     let streamRetries = 0;
     const maxRetries = 5;
@@ -613,6 +626,12 @@
     
     // Load saved RTSP URL on page load
     document.addEventListener('DOMContentLoaded', function() {
+        console.log("🔴 DOMContentLoaded fired");
+        
+        // Check again after DOM load
+        console.log("🔴 After DOM load - window._supabase:", !!window._supabase);
+        console.log("🔴 After DOM load - window.USER_ID:", window.USER_ID);
+        
         loadSavedRtspUrl();
         updateTimestamp();
         loadStats();
@@ -657,6 +676,7 @@
     
     // ===== TAB SWITCHING =====
     function switchTab(tabName) {
+        console.log("🔴 Switching tab to:", tabName);
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
         document.getElementById(`tab-${tabName}-btn`).classList.add('active');
         
@@ -679,8 +699,9 @@
         }
     }
     
-    // ===== RTSP FUNCTIONS (your existing code) =====
+    // ===== RTSP FUNCTIONS =====
     function loadSavedRtspUrl() {
+        console.log("🔴 Loading saved RTSP URL");
         fetch("{% url 'get_rtsp_status' %}")
             .then(response => response.json())
             .then(data => {
@@ -1207,18 +1228,6 @@
         video.src = '';
     }
     
-    // ===== NOTIFICATION =====
-    function showNotification(message, type = 'info') {
-        document.querySelectorAll('.notif-toast').forEach(n => n.remove());
-        const bg = { success: 'bg-greenlight', error: 'bg-alert', info: 'bg-sky', warn: 'bg-gold' }[type] ?? 'bg-sky';
-        const icon = { success: 'bi-check-circle', error: 'bi-exclamation-triangle', info: 'bi-info-circle', warn: 'bi-exclamation-circle' }[type] ?? 'bi-info-circle';
-        const el = document.createElement('div');
-        el.className = `notif-toast fixed top-4 right-4 p-4 rounded-lg ${bg} text-white z-[99999] shadow-xl transition-all duration-300`;
-        el.innerHTML = `<div class="flex items-center gap-2"><i class="bi ${icon}"></i><span>${message}</span></div>`;
-        document.body.appendChild(el);
-        setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateX(120%)'; setTimeout(() => el.remove(), 350); }, 4000);
-    }
-    
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
@@ -1241,5 +1250,7 @@
                 .catch(error => console.error("Cleanup error:", error));
         }
     });
+    
+    console.log("🔴 LIVE DETECTION: Script finished");
 </script>
 {% endblock %}
