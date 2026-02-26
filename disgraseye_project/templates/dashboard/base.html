@@ -70,6 +70,68 @@
             from { transform: translateX(100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
         }
+        
+        /* ===== MODAL STYLES ===== */
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .confirm-modal-overlay {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .confirm-modal {
+            animation: slideUpModal 0.3s ease-out;
+        }
+
+        @keyframes slideUpModal {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .loading-spinner {
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top: 2px solid #38BDF8;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .review-pulse {
+            animation: reviewPulse 2s infinite;
+        }
+
+        @keyframes reviewPulse {
+            0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(56, 189, 248, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+        }
+
+        .re-review-btn {
+            animation: gentlePulse 2s infinite;
+        }
+
+        @keyframes gentlePulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
     </style>
 
     {% block extra_head %}{% endblock %}
@@ -186,33 +248,636 @@ let USER_ID = null;
 
 const SUPABASE_URL = "{{ SUPABASE_URL|default:'https://ivigoibymrcvaftgayqv.supabase.co' }}";
 const SUPABASE_ANON_KEY = "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aWdvaWJ5bXJjdmFmdGdheXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MDI2MDgsImV4cCI6MjA3OTQ3ODYwOH0.c3MoFVyNGXwZ3zqtgWz62Du0WfA7pranyAXDwRpy5sw' }}";
+const SUPABASE_SERVICE_ROLE_KEY = "{{ SUPABASE_SERVICE_ROLE_KEY|escapejs }}";
 
 console.log("BASE TEMPLATE: User ID =", USER_ID);
 console.log("BASE TEMPLATE: Supabase URL exists =", SUPABASE_URL ? "Yes" : "No");
 
 // Supabase initialization
 let supabaseClient = null;
+let supabaseAdminClient = null;
 
-function initSupabase() {
-    if (!supabaseClient) {
-        try {
-            if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-                console.error("Supabase credentials missing!");
+function initSupabase(useServiceKey = false) {
+    if (useServiceKey) {
+        if (!supabaseAdminClient) {
+            try {
+                if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+                    console.error("Supabase service credentials missing!");
+                    return null;
+                }
+                supabaseAdminClient = supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+                console.log("Supabase admin initialized successfully");
+            } catch (error) {
+                console.error("Failed to initialize Supabase admin:", error);
                 return null;
             }
-            
-            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-            console.log("Supabase initialized successfully");
-            window._supabase = supabaseClient;
-        } catch (error) {
-            console.error("Failed to initialize Supabase:", error);
         }
+        return supabaseAdminClient;
+    } else {
+        if (!supabaseClient) {
+            try {
+                if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                    console.error("Supabase anon credentials missing!");
+                    return null;
+                }
+                supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log("Supabase anon initialized successfully");
+                window._supabase = supabaseClient;
+            } catch (error) {
+                console.error("Failed to initialize Supabase:", error);
+                return null;
+            }
+        }
+        return supabaseClient;
     }
-    return supabaseClient;
 }
 
 // Initialize immediately
-initSupabase();
+initSupabase(false);
+
+/* ==================== MODAL FUNCTIONS ==================== */
+
+// Custom Confirm Modal
+function showCustomConfirm(title, message, type = 'confirm') {
+    return new Promise((resolve) => {
+        const modalId = 'customConfirmModal';
+        const existing = document.getElementById(modalId);
+        if (existing) existing.remove();
+        
+        let bgColor, icon, buttonText;
+        if (type === 'warning') {
+            bgColor = 'bg-gold'; icon = 'fa-exclamation-triangle'; buttonText = 'Yes, Change Decision';
+        } else if (type === 'delete') {
+            bgColor = 'bg-alert'; icon = 'fa-trash-alt'; buttonText = 'Yes, Delete';
+        } else if (type === 'cancel') {
+            bgColor = 'bg-alert'; icon = 'fa-times-circle'; buttonText = 'Mark as False Alarm';
+        } else {
+            bgColor = 'bg-greenlight'; icon = 'fa-check-circle'; buttonText = 'Confirm & Dispatch Tanod';
+        }
+        
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="${modalId}" class="fixed inset-0 confirm-modal-overlay z-[9999] flex items-center justify-center p-4">
+                <div class="confirm-modal bg-[#1E293B] rounded-xl max-w-md w-full border border-gray-600 shadow-2xl">
+                    <div class="p-6">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="${bgColor}/20 p-3 rounded-full">
+                                <i class="fas ${icon} text-2xl icon-md"></i>
+                            </div>
+                            <h3 class="text-xl font-bold text-white">${title}</h3>
+                        </div>
+                        <p class="text-gray-300 mb-6">${message}</p>
+                        <div class="flex gap-3 justify-end">
+                            <button id="cancelConfirmBtn" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition">Cancel</button>
+                            <button id="confirmActionBtn" class="px-4 py-2 ${bgColor} hover:opacity-80 text-white rounded-lg transition flex items-center gap-2">
+                                <i class="fas ${icon} icon-xs"></i> ${buttonText}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+        document.getElementById('cancelConfirmBtn').addEventListener('click', () => { 
+            document.getElementById(modalId).remove(); 
+            resolve(false); 
+        });
+        
+        document.getElementById('confirmActionBtn').addEventListener('click', () => { 
+            document.getElementById(modalId).remove(); 
+            resolve(true); 
+        });
+    });
+}
+
+// Review Accident Modal
+async function reviewAccident(accidentId) {
+    try {
+        const supabaseClient = initSupabase(false);
+        if (!supabaseClient) throw new Error("Supabase client not initialized");
+        
+        // Show loading modal first
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
+                <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+                    <div class="p-4 border-b border-gray-600 flex justify-between items-center">
+                        <h3 class="text-lg font-bold">Loading Accident Details...</h3>
+                        <button onclick="document.getElementById('reviewModal').remove()" class="text-gray-400 hover:text-white">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="p-8 text-center">
+                        <div class="loading-spinner mx-auto"></div>
+                        <p class="mt-4 text-gray-400">Fetching accident data...</p>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+        const { data: accident, error } = await supabaseClient
+            .from('accident_detections')
+            .select(`
+                accident_id,
+                detection_time,
+                status,
+                frame_image,
+                video_clip,
+                camera_id,
+                cctv:camera_id (
+                    location_name,
+                    status
+                )
+            `)
+            .eq('accident_id', accidentId)
+            .single();
+        
+        if (error) throw error;
+        
+        // Remove loading modal
+        document.getElementById('reviewModal').remove();
+        
+        const detectionTime = new Date(accident.detection_time).toLocaleString();
+        const locationName = accident.cctv?.location_name || 
+            (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
+        
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
+                <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+                    <div class="p-4 md:p-6 border-b border-gray-600 flex justify-between items-center">
+                        <div>
+                            <h3 class="text-lg md:text-xl font-bold">Review Accident #${accident.accident_id}</h3>
+                            <p class="text-sm text-gray-400">
+                                <i class="fas fa-map-marker-alt mr-1"></i> ${locationName} &bull;
+                                <i class="fas fa-clock mr-1"></i> ${detectionTime}
+                            </p>
+                        </div>
+                        <button onclick="document.getElementById('reviewModal').remove()" 
+                                class="text-gray-400 hover:text-white text-xl">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="p-4 md:p-6 overflow-y-auto" style="max-height: calc(90vh - 120px);">
+                        <!-- Status Banner -->
+                        <div class="mb-6 p-4 ${accident.status === 'Pending' ? 'bg-gold/20 border border-gold/30' : 'bg-gray-700/20 border border-gray-600'} rounded-lg">
+                            <div class="flex items-center gap-3">
+                                <i class="fas ${accident.status === 'Pending' ? 'fa-clock text-gold' : 'fa-check-circle text-greenlight'} text-xl"></i>
+                                <div>
+                                    <p class="font-medium">Current Status: <span class="${accident.status === 'Pending' ? 'text-gold' : 'text-greenlight'}">${accident.status === 'Pending' ? 'Pending Review' : accident.status}</span></p>
+                                    <p class="text-xs text-gray-400 mt-1">
+                                        ${accident.status === 'Pending' ? 'Review the footage and decide: Is this a real accident or false alarm?' : 'This accident has already been reviewed.'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Media Grid -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                            <div>
+                                <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                    <i class="fas fa-image text-gold"></i> Detection Frame
+                                </h4>
+                                ${accident.frame_image ? `
+                                    <img src="${accident.frame_image}" alt="Accident frame"
+                                         class="w-full rounded-lg border border-gray-600 cursor-pointer hover:opacity-90 transition"
+                                         style="max-height: 200px; object-fit: cover;"
+                                         onclick="window.open('${accident.frame_image}', '_blank')"
+                                         title="Click to enlarge">
+                                    <p class="text-xs text-gray-400 mt-1"><i class="fas fa-search-plus"></i> Click image to enlarge</p>
+                                ` : `
+                                    <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
+                                        <i class="fas fa-image text-3xl mb-2 text-gray-600"></i>
+                                        <p class="text-sm">No frame image available</p>
+                                        <p class="text-xs text-gray-600 mt-1">Image will appear once CCTV is integrated</p>
+                                    </div>
+                                `}
+                            </div>
+                            <div>
+                                <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                    <i class="fas fa-video text-sky"></i> Video Evidence
+                                </h4>
+                                ${accident.video_clip ? `
+                                    <video src="${accident.video_clip}" controls
+                                           class="w-full rounded-lg border border-gray-600 bg-black"
+                                           style="max-height: 200px;">
+                                        Your browser does not support the video tag.
+                                    </video>
+                                    <p class="text-xs text-gray-400 mt-1"><i class="fas fa-info-circle"></i> Video clip from time of detection</p>
+                                ` : `
+                                    <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
+                                        <i class="fas fa-video-slash text-3xl mb-2 text-gray-600"></i>
+                                        <p class="text-sm">No video available</p>
+                                        <p class="text-xs text-gray-600 mt-1">Video will appear once CCTV is integrated</p>
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+
+                        <!-- Detection Details -->
+                        <div class="mb-6 p-4 bg-[#112240] rounded-lg border border-gray-600">
+                            <h4 class="font-semibold mb-3 flex items-center gap-2">
+                                <i class="fas fa-info-circle text-sky"></i> Detection Details
+                            </h4>
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <div>
+                                    <p class="text-xs text-gray-400">Camera ID</p>
+                                    <p class="font-medium">${accident.camera_id || 'Not assigned'}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-400">Location</p>
+                                    <p class="font-medium">${locationName}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-400">Camera Status</p>
+                                    <p class="font-medium ${accident.cctv?.status === 'Active' ? 'text-greenlight' : 'text-alert'}">
+                                        ${accident.cctv?.status || 'Unknown'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-400">Detection Time</p>
+                                    <p class="font-medium text-xs">${detectionTime}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-400">Accident ID</p>
+                                    <p class="font-medium text-xs">#${accident.accident_id}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="flex flex-col sm:flex-row gap-3 justify-end">
+                            <button onclick="verifyAccident(${accident.accident_id}, false, true)"
+                                    class="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
+                                <i class="fas fa-times-circle"></i> False Alarm (Cancel)
+                            </button>
+                            <button onclick="verifyAccident(${accident.accident_id}, true, true)"
+                                    class="bg-greenlight hover:bg-greenlight/80 text-white px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
+                                <i class="fas fa-check-circle"></i> Confirm &amp; Dispatch Tanod
+                            </button>
+                        </div>
+
+                        <p class="text-xs text-gray-500 text-center mt-4">
+                            <i class="fas fa-shield-alt"></i>
+                            <strong>Confirm:</strong> Tanod dispatched, they will verify on-site &nbsp;&bull;&nbsp;
+                            <strong>False Alarm:</strong> Incident cancelled immediately
+                        </p>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+    } catch (error) {
+        console.error('Error in reviewAccident:', error);
+        const modal = document.getElementById('reviewModal');
+        if (modal) modal.remove();
+        showToast('Failed to load accident details: ' + error.message, 'error');
+    }
+}
+
+// Re-review Accident Modal
+async function reReviewAccident(accidentId, currentStatus) {
+    try {
+        const confirmed = await showCustomConfirm(
+            'Re-review Accident',
+            `This accident is currently marked as "${currentStatus === 'Admin_Confirmed' ? 'Dispatched' : 'False Alarm'}". Do you want to change this decision?`,
+            'warning'
+        );
+        if (!confirmed) return;
+        
+        // Show loading modal
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
+                <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+                    <div class="p-4 border-b border-gray-600 flex justify-between items-center">
+                        <h3 class="text-lg font-bold">Re-review Accident #${accidentId}</h3>
+                        <button onclick="document.getElementById('reviewModal').remove()" class="text-gray-400 hover:text-white">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="p-8 text-center">
+                        <div class="loading-spinner mx-auto"></div>
+                        <p class="mt-4 text-gray-400">Loading accident details for re-review...</p>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+        const supabaseClient = initSupabase(false);
+        const { data: accident, error } = await supabaseClient
+            .from('accident_detections')
+            .select(`
+                accident_id,
+                detection_time,
+                status,
+                frame_image,
+                video_clip,
+                camera_id,
+                cctv:camera_id (
+                    location_name,
+                    status
+                )
+            `)
+            .eq('accident_id', accidentId)
+            .single();
+        
+        if (error) throw error;
+        
+        document.getElementById('reviewModal').remove();
+        
+        const detectionTime = new Date(accident.detection_time).toLocaleString();
+        const locationName = accident.cctv?.location_name ||
+            (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
+        
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
+                <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+                    <div class="p-4 md:p-6 border-b border-gray-600 flex justify-between items-center">
+                        <div>
+                            <h3 class="text-lg md:text-xl font-bold">Re-review Accident #${accident.accident_id}</h3>
+                            <p class="text-sm text-gray-400">
+                                <i class="fas fa-map-marker-alt mr-1"></i> ${locationName} &bull;
+                                <i class="fas fa-clock mr-1"></i> ${detectionTime}
+                            </p>
+                            <p class="text-xs text-gold mt-1">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                Current Status: ${accident.status === 'Admin_Confirmed' ? 'Dispatched' : 'False Alarm'}
+                            </p>
+                        </div>
+                        <button onclick="document.getElementById('reviewModal').remove()"
+                                class="text-gray-400 hover:text-white text-xl">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="p-4 md:p-6 overflow-y-auto" style="max-height: calc(90vh - 120px);">
+                        <!-- Warning Banner -->
+                        <div class="mb-6 p-4 bg-gold/20 border border-gold/30 rounded-lg">
+                            <div class="flex items-center gap-3">
+                                <i class="fas fa-undo-alt text-gold text-xl"></i>
+                                <div>
+                                    <p class="font-medium">You are about to change your decision</p>
+                                    <p class="text-xs text-gray-400 mt-1">
+                                        This will send new notifications to tanods based on your updated decision.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Media Grid -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                            <div>
+                                <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                    <i class="fas fa-image text-gold"></i> Detection Frame
+                                </h4>
+                                ${accident.frame_image ? `
+                                    <img src="${accident.frame_image}" alt="Accident frame"
+                                         class="w-full rounded-lg border border-gray-600 cursor-pointer hover:opacity-90 transition"
+                                         style="max-height: 200px; object-fit: cover;"
+                                         onclick="window.open('${accident.frame_image}', '_blank')"
+                                         title="Click to enlarge">
+                                ` : `
+                                    <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
+                                        <i class="fas fa-image text-3xl mb-2 text-gray-600"></i>
+                                        <p class="text-sm">No frame image available</p>
+                                    </div>
+                                `}
+                            </div>
+                            <div>
+                                <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                    <i class="fas fa-video text-sky"></i> Video Evidence
+                                </h4>
+                                ${accident.video_clip ? `
+                                    <video src="${accident.video_clip}" controls
+                                           class="w-full rounded-lg border border-gray-600 bg-black"
+                                           style="max-height: 200px;">
+                                        Your browser does not support the video tag.
+                                    </video>
+                                ` : `
+                                    <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
+                                        <i class="fas fa-video-slash text-3xl mb-2 text-gray-600"></i>
+                                        <p class="text-sm">No video available</p>
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+
+                        <!-- Detection Details -->
+                        <div class="mb-6 p-4 bg-[#112240] rounded-lg border border-gray-600">
+                            <h4 class="font-semibold mb-3 flex items-center gap-2">
+                                <i class="fas fa-info-circle text-sky"></i> Detection Details
+                            </h4>
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <div>
+                                    <p class="text-xs text-gray-400">Camera ID</p>
+                                    <p class="font-medium">${accident.camera_id || 'Not assigned'}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-400">Location</p>
+                                    <p class="font-medium">${locationName}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-400">Camera Status</p>
+                                    <p class="font-medium ${accident.cctv?.status === 'Active' ? 'text-greenlight' : 'text-alert'}">
+                                        ${accident.cctv?.status || 'Unknown'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="flex flex-col sm:flex-row gap-3 justify-end">
+                            <button onclick="document.getElementById('reviewModal').remove()"
+                                    class="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition">
+                                Cancel
+                            </button>
+                            <button onclick="updateDecision(${accident.accident_id}, ${accident.status === 'Admin_Confirmed' ? 'false' : 'true'}, true)"
+                                    class="bg-gold hover:bg-yellow-500 text-darkblue px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
+                                <i class="fas fa-undo-alt"></i>
+                                Change to ${accident.status === 'Admin_Confirmed' ? 'False Alarm' : 'Dispatch Tanod'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+    } catch (error) {
+        console.error('Error in reReviewAccident:', error);
+        const modal = document.getElementById('reviewModal');
+        if (modal) modal.remove();
+        showToast('Failed to load accident details for re-review', 'error');
+    }
+}
+
+// Verify Accident
+async function verifyAccident(accidentId, isConfirmed, closeModal = false) {
+    try {
+        const confirmed = await showCustomConfirm(
+            isConfirmed ? 'Confirm & Dispatch Tanod' : 'Mark as False Alarm',
+            isConfirmed
+                ? 'Are you sure you want to dispatch a tanod? They will respond to the location and verify on-site.'
+                : 'Are you sure you want to cancel this incident? No tanod will be dispatched.',
+            isConfirmed ? 'confirm' : 'cancel'
+        );
+        if (!confirmed) return;
+        
+        const adminClient = initSupabase(true);
+        if (!adminClient) { showToast('Server configuration error. Please contact administrator.', 'error'); return; }
+        
+        showToast('Processing...', 'info');
+        
+        const newStatus = isConfirmed ? 'Admin_Confirmed' : 'False_Alarm';
+        
+        const { error: updateError } = await adminClient
+            .from('accident_detections')
+            .update({ status: newStatus })
+            .eq('accident_id', accidentId);
+        
+        if (updateError) throw updateError;
+        
+        const { data: tanods, error: tanodError } = await adminClient
+            .from('users').select('user_id').eq('role', 'tanod');
+        
+        if (!tanodError && tanods && tanods.length > 0) {
+            const alerts = tanods.map(tanod => ({
+                detection_id: accidentId,
+                sent_to: tanod.user_id,
+                message: isConfirmed
+                    ? 'CONFIRMED ACCIDENT - Please respond to location'
+                    : 'INCIDENT CANCELLED - False alarm. Stand down.',
+                response_status: isConfirmed ? 'Unacknowledged' : 'Resolved',
+                alert_time: new Date().toISOString()
+            }));
+            await adminClient.from('alerts').insert(alerts);
+            showToast(isConfirmed
+                ? `Tanod dispatched! ${tanods.length} tanod(s) notified.`
+                : 'False alarm! Tanods notified to stand down.', 'success');
+        }
+        
+        if (closeModal) {
+            const modal = document.getElementById('reviewModal');
+            if (modal) modal.remove();
+        }
+        
+        // Reload dashboard data if function exists
+        if (typeof loadDashboardData === 'function') {
+            await loadDashboardData();
+        }
+        
+    } catch (error) {
+        console.error('Error in verifyAccident:', error);
+        showToast('Failed to process verification: ' + (error.message || 'Unknown error'), 'error');
+    }
+}
+
+// Update Decision (for re-review)
+async function updateDecision(accidentId, newIsConfirmed, closeModal = false) {
+    try {
+        const adminClient = initSupabase(true);
+        if (!adminClient) throw new Error("Supabase admin client not initialized");
+        
+        showToast('Updating decision...', 'info');
+        
+        const newStatus = newIsConfirmed ? 'Admin_Confirmed' : 'False_Alarm';
+        
+        const { error: updateError } = await adminClient
+            .from('accident_detections')
+            .update({ status: newStatus })
+            .eq('accident_id', accidentId);
+        if (updateError) throw updateError;
+        
+        const { data: tanods } = await adminClient.from('users').select('user_id').eq('role', 'tanod');
+        
+        if (tanods && tanods.length > 0) {
+            // Cancel old alerts
+            const cancelAlerts = tanods.map(tanod => ({
+                detection_id: accidentId,
+                sent_to: tanod.user_id,
+                message: 'PREVIOUS DECISION CANCELLED - New assessment in progress',
+                response_status: 'Unacknowledged',
+                alert_time: new Date().toISOString()
+            }));
+            await adminClient.from('alerts').insert(cancelAlerts);
+            
+            // Send new decision alerts
+            const newAlerts = tanods.map(tanod => ({
+                detection_id: accidentId,
+                sent_to: tanod.user_id,
+                message: newIsConfirmed
+                    ? 'CONFIRMED ACCIDENT - Please respond to location'
+                    : 'INCIDENT CANCELLED - False alarm. Stand down.',
+                response_status: 'Unacknowledged',
+                alert_time: new Date().toISOString()
+            }));
+            await adminClient.from('alerts').insert(newAlerts);
+            showToast('Decision updated! Tanods notified of change.', 'success');
+        }
+        
+        if (closeModal) {
+            const modal = document.getElementById('reviewModal');
+            if (modal) modal.remove();
+        }
+        
+        // Reload dashboard data if function exists
+        if (typeof loadDashboardData === 'function') {
+            await loadDashboardData();
+        }
+        
+    } catch (error) {
+        console.error('Error in updateDecision:', error);
+        showToast('Failed to update decision', 'error');
+    }
+}
+
+// Acknowledge Alert
+async function acknowledgeAlert(alertId) {
+    try {
+        const adminClient = initSupabase(true);
+        if (!adminClient) throw new Error("Supabase admin client not initialized");
+        
+        const { error } = await adminClient
+            .from('alerts')
+            .update({ response_status: 'Acknowledged' })
+            .eq('alert_id', alertId)
+            .eq('sent_to', {{ user.user_id }});
+        
+        if (error) throw error;
+        showToast('Alert acknowledged successfully');
+        
+        // Reload notifications and dashboard
+        if (typeof loadNotifications === 'function') {
+            await loadNotifications();
+        }
+        if (typeof loadDashboardData === 'function') {
+            await loadDashboardData();
+        }
+    } catch (error) {
+        console.error('Error in acknowledgeAlert:', error);
+        showToast('Failed to acknowledge alert', 'error');
+    }
+}
+
+// Delete Alert
+async function deleteAlert(alertId) {
+    try {
+        const confirmed = await showCustomConfirm('Delete Alert', 'Are you sure you want to delete this alert? This action cannot be undone.', 'delete');
+        if (!confirmed) return;
+        
+        const adminClient = initSupabase(true);
+        await adminClient.from('alerts').delete().eq('alert_id', alertId);
+        showToast('Alert deleted successfully', 'success');
+        
+        // Reload notifications and dashboard
+        if (typeof loadNotifications === 'function') {
+            await loadNotifications();
+        }
+        if (typeof loadDashboardData === 'function') {
+            await loadDashboardData();
+        }
+    } catch (error) {
+        console.error('Error deleting alert:', error);
+        showToast('Failed to delete alert', 'error');
+    }
+}
 
 /* ELEMENTS */
 const notifBtn = document.getElementById("notifBtn");
@@ -278,7 +943,7 @@ document.addEventListener("click", (e) => {
 if (markAllReadBtn) {
     markAllReadBtn.addEventListener('click', async () => {
         try {
-            const client = initSupabase();
+            const client = initSupabase(false);
             if (!client) throw new Error("Supabase client not initialized");
             
             if (!USER_ID || USER_ID === 'null') {
@@ -340,7 +1005,7 @@ if (markAllReadBtn) {
     });
 }
 
-/* LOAD NOTIFICATIONS - UNIVERSAL VERSION */
+/* LOAD NOTIFICATIONS */
 async function loadNotifications() {
     // Don't try to load if no user ID
     if (!USER_ID || USER_ID === 'null') {
@@ -358,7 +1023,7 @@ async function loadNotifications() {
     if (notifList) notifList.innerHTML = "";
 
     try {
-        const client = initSupabase();
+        const client = initSupabase(false);
         if (!client) throw new Error("Supabase client not initialized");
 
         console.log("🔵 USER_ID from template:", USER_ID);
@@ -402,7 +1067,8 @@ async function loadNotifications() {
                 response_status,
                 detection_id,
                 accident_detections:detection_id (
-                    status
+                    status,
+                    accident_id
                 )
             `)
             .eq("sent_to", alertUserId)
@@ -421,6 +1087,7 @@ async function loadNotifications() {
                 if (isUnread) unread++;
 
                 const incidentStatus = alert.accident_detections?.status;
+                const accidentId = alert.accident_detections?.accident_id;
                 
                 let icon = "fa-bell";
                 let colorClass = "text-gray-400";
@@ -451,6 +1118,32 @@ async function loadNotifications() {
                     : alert.message || 'No message';
 
                 if (notifList) {
+                    let actionButton = '';
+                    
+                    // Admin actions - REVIEW for pending, RE-REVIEW for decided
+                    if (incidentStatus === 'Pending' && accidentId) {
+                        actionButton = `
+                            <button onclick="reviewAccident(${accidentId})" 
+                                    class="text-[10px] bg-sky hover:bg-sky/80 text-white px-1.5 py-0.5 rounded flex-shrink-0">
+                                Review
+                            </button>
+                        `;
+                    } else if ((incidentStatus === 'Admin_Confirmed' || incidentStatus === 'False_Alarm') && accidentId) {
+                        actionButton = `
+                            <button onclick="reReviewAccident(${accidentId}, '${incidentStatus}')" 
+                                    class="text-[10px] bg-gold hover:bg-yellow-500 text-darkblue px-1.5 py-0.5 rounded flex-shrink-0">
+                                Re-review
+                            </button>
+                        `;
+                    } else if (alert.response_status === 'Unacknowledged' && alert.alert_id) {
+                        actionButton = `
+                            <button onclick="acknowledgeAlert(${alert.alert_id})" 
+                                    class="text-[10px] bg-gray-600 hover:bg-gray-700 text-white px-1.5 py-0.5 rounded flex-shrink-0">
+                                Ok
+                            </button>
+                        `;
+                    }
+
                     notifList.innerHTML += `
                         <li class="px-3 py-2 hover:bg-gray-800/50 ${bgColor} ${isUnread ? 'border-l-2 border-sky' : ''}">
                             <div class="flex items-start gap-2">
@@ -463,24 +1156,7 @@ async function loadNotifications() {
                                         <span class="capitalize">${alert.response_status || 'Unknown'}</span>
                                     </div>
                                 </div>
-                                ${incidentStatus === 'Pending' && alert.detection_id ? `
-                                <button onclick="reviewAccident(${alert.detection_id})" 
-                                        class="text-[10px] bg-sky hover:bg-sky/80 text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                                    Review
-                                </button>
-                                ` : ''}
-                                ${incidentStatus === 'Verified' && alert.detection_id ? `
-                                <button onclick="viewReport(${alert.detection_id})" 
-                                        class="text-[10px] bg-gray-600 hover:bg-gray-700 text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                                    Report
-                                </button>
-                                ` : ''}
-                                ${alert.response_status === 'Unacknowledged' && !incidentStatus && alert.alert_id ? `
-                                <button onclick="acknowledgeAlert(${alert.alert_id})" 
-                                        class="text-[10px] bg-gray-600 hover:bg-gray-700 text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                                    Ok
-                                </button>
-                                ` : ''}
+                                ${actionButton}
                             </div>
                         </li>
                     `;
@@ -515,102 +1191,6 @@ async function loadNotifications() {
     }
 }
 
-/* ACKNOWLEDGE ALERT */
-async function acknowledgeAlert(alertId) {
-    if (!alertId) return;
-    
-    try {
-        const client = initSupabase();
-        
-        // Handle UUID vs Integer
-        const isUuid = typeof USER_ID === 'string' && USER_ID.includes('-');
-        let alertUserId = USER_ID;
-        
-        if (isUuid) {
-            const { data: userData } = await client
-                .from("users")
-                .select("user_id")
-                .eq("auth_id", USER_ID)
-                .maybeSingle();
-                
-            if (userData) {
-                alertUserId = userData.user_id;
-            }
-        }
-        
-        await client
-            .from("alerts")
-            .update({ response_status: "Acknowledged" })
-            .eq("alert_id", alertId)
-            .eq("sent_to", alertUserId);
-        
-        showToast('Alert acknowledged', 'success');
-        await loadNotifications();
-    } catch (err) {
-        showToast('Failed', 'error');
-    }
-}
-
-/* REVIEW ACCIDENT */
-async function reviewAccident(detectionId) {
-    if (!detectionId) return;
-    
-    try {
-        const action = confirm(
-            "Review Accident\n\nOK = Confirm\nCancel = False Alarm"
-        );
-        
-        const client = initSupabase();
-        
-        // Handle UUID vs Integer
-        const isUuid = typeof USER_ID === 'string' && USER_ID.includes('-');
-        let alertUserId = USER_ID;
-        
-        if (isUuid) {
-            const { data: userData } = await client
-                .from("users")
-                .select("user_id")
-                .eq("auth_id", USER_ID)
-                .maybeSingle();
-                
-            if (userData) {
-                alertUserId = userData.user_id;
-            }
-        }
-        
-        if (action) {
-            await client
-                .from("accident_detections")
-                .update({ 
-                    status: "Admin_Confirmed",
-                    verified_by: alertUserId
-                })
-                .eq("accident_id", detectionId);
-            
-            showToast('Accident confirmed', 'success');
-        } else {
-            await client
-                .from("accident_detections")
-                .update({ 
-                    status: "False_Alarm",
-                    verified_by: alertUserId
-                })
-                .eq("accident_id", detectionId);
-            
-            await client
-                .from("alerts")
-                .update({ response_status: "Resolved" })
-                .eq("detection_id", detectionId);
-            
-            showToast('False alarm', 'success');
-        }
-        
-        await loadNotifications();
-    } catch (err) {
-        showToast('Failed', 'error');
-    }
-}
-
 /* VIEW REPORT */
 async function viewReport(detectionId) {
     if (detectionId) {
@@ -627,7 +1207,7 @@ if (testAlertBtn) {
             testAlertBtn.disabled = true;
             testAlertBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             
-            const client = initSupabase();
+            const client = initSupabase(false);
             if (!client) throw new Error("Supabase client not initialized");
             
             if (!USER_ID || USER_ID === 'null') {
@@ -733,7 +1313,7 @@ function setupRealtime() {
         return;
     }
     
-    const client = initSupabase();
+    const client = initSupabase(false);
     if (client) {
         client
             .channel(`alerts-${USER_ID}`)
@@ -763,9 +1343,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Global functions
 window.reviewAccident = reviewAccident;
-window.viewReport = viewReport;
+window.reReviewAccident = reReviewAccident;
+window.verifyAccident = verifyAccident;
+window.updateDecision = updateDecision;
 window.acknowledgeAlert = acknowledgeAlert;
+window.deleteAlert = deleteAlert;
+window.viewReport = viewReport;
 window.showToast = showToast;
+window.showCustomConfirm = showCustomConfirm;
 window.loadNotifications = loadNotifications;
 window.USER_ID = USER_ID;
 window.initSupabase = initSupabase;
