@@ -59,23 +59,57 @@
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        .toast-notification {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 9999;
-            animation: slideIn 0.3s ease-out;
-        }
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
         
         /* ===== MODAL STYLES ===== */
         .modal-overlay {
             background: rgba(0, 0, 0, 0.8);
             backdrop-filter: blur(5px);
             animation: fadeIn 0.2s ease-out;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 9999;
+            overflow-y: auto;
+            padding: 1rem;
+        }
+
+        .modal-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100%;
+            padding: 1rem;
+        }
+
+        .modal-content {
+            background: #1E293B;
+            border-radius: 1rem;
+            max-width: 64rem;
+            width: 100%;
+            max-height: calc(100vh - 4rem);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            margin: auto;
+        }
+
+        .modal-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid rgba(75, 85, 99, 0.5);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #1E293B;
+            flex-shrink: 0;
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
         }
 
         .confirm-modal-overlay {
@@ -132,6 +166,125 @@
             50% { opacity: 0.7; }
             100% { opacity: 1; }
         }
+
+        .timestamp-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(56, 189, 248, 0.1);
+            color: #38BDF8;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .status-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .status-unacknowledged { background: rgba(239, 68, 68, 0.1); color: #EF4444; }
+        .status-acknowledged { background: rgba(252, 211, 77, 0.1); color: #FCD34D; }
+        .status-resolved { background: rgba(34, 197, 94, 0.1); color: #22C55E; }
+
+        .report-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .report-card:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(56, 189, 248, 0.3);
+            transform: translateY(-1px);
+        }
+        .report-photo {
+            width: 80px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 0.375rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .report-photo:hover {
+            transform: scale(1.05);
+            border-color: #38BDF8;
+        }
+        .report-photo-large {
+            max-height: 400px;
+            width: auto;
+            max-width: 100%;
+            object-fit: contain;
+            border-radius: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .tanod-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #38BDF8, #2563EB);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+        }
+
+        /* Notification styles */
+        .notification-item {
+            transition: background-color 0.2s ease;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .notification-item:hover {
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+        .notification-time {
+            font-size: 0.7rem;
+            color: #38BDF8;
+            opacity: 0.8;
+        }
+        .notification-time i {
+            font-size: 0.6rem;
+            margin-right: 2px;
+        }
+        .notification-message {
+            line-height: 1.4;
+            word-break: break-word;
+        }
+        .notification-badge {
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            border-radius: 12px;
+            background: rgba(56, 189, 248, 0.1);
+            color: #38BDF8;
+        }
+
+        /* Timeline scroll */
+        .timeline-scroll {
+            max-height: 300px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+        .timeline-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .timeline-scroll::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+        .timeline-scroll::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.3);
+            border-radius: 4px;
+        }
+        .timeline-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(56, 189, 248, 0.5);
+        }
     </style>
 
     {% block extra_head %}{% endblock %}
@@ -146,7 +299,7 @@
     </h1>
 
     <div class="flex items-center gap-4 relative">
-        <!-- Test Alert Button -->
+        <!-- Test Alert Button (for development) -->
         <button id="testAlertBtn"
             class="bg-yellow-500 hover:bg-yellow-600 text-black px-3 py-1.5 rounded-lg flex items-center gap-1 text-sm transition">
             <i class="fas fa-bolt text-xs"></i> Test
@@ -162,24 +315,25 @@
                 </span>
             </button>
 
-            <!-- Compact Dropdown -->
+            <!-- Notifications Dropdown - Facebook style -->
             <div id="notifDropdown"
-                class="hidden absolute right-0 mt-2 w-72 bg-cardbg rounded-lg shadow-xl z-50 border border-gray-700 max-h-96 overflow-y-auto">
-                <div class="p-2 border-b border-gray-700 font-semibold text-sky flex justify-between items-center sticky top-0 bg-cardbg">
-                    <span class="text-sm"><i class="fas fa-bell mr-2"></i>Alerts</span>
+                class="hidden absolute right-0 mt-2 w-96 bg-cardbg rounded-lg shadow-xl z-50 border border-gray-700 max-h-[500px] overflow-y-auto">
+                <div class="p-3 border-b border-gray-700 font-semibold text-sky flex justify-between items-center sticky top-0 bg-cardbg">
+                    <span class="text-sm"><i class="fas fa-bell mr-2"></i>Notifications</span>
                     <button id="markAllRead" class="text-xs text-sky hover:underline hidden">Mark all read</button>
                 </div>
 
                 <div id="notifLoading" class="p-4 text-center">
                     <div class="animate-spin h-5 w-5 border-2 border-sky border-t-transparent rounded-full mx-auto"></div>
-                    <p class="mt-1 text-xs text-gray-400">Loading...</p>
+                    <p class="mt-1 text-xs text-gray-400">Loading notifications...</p>
                 </div>
 
-                <ul id="notifList" class="divide-y divide-gray-700 text-xs max-h-80 overflow-y-auto"></ul>
+                <div id="notifList" class="divide-y divide-gray-700"></div>
 
-                <div id="notifEmpty" class="hidden p-4 text-center text-gray-400">
-                    <i class="fas fa-bell-slash text-lg mb-1"></i>
-                    <p class="text-xs">No alerts yet</p>
+                <div id="notifEmpty" class="hidden p-8 text-center text-gray-400">
+                    <i class="fas fa-bell-slash text-3xl mb-2"></i>
+                    <p class="text-sm">No notifications yet</p>
+                    <p class="text-xs mt-1 text-gray-600">When you get alerts, they'll appear here</p>
                 </div>
             </div>
         </div>
@@ -235,6 +389,7 @@ console.log("BASE TEMPLATE: Script starting");
 
 // Get user ID from multiple sources - UNIVERSAL FIX
 let USER_ID = null;
+let USER_ROLE = "{{ user.role|default:'admin' }}";
 
 // First try: session data directly (most reliable)
 {% if request.session.supabase_user %}
@@ -251,6 +406,7 @@ const SUPABASE_ANON_KEY = "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR
 const SUPABASE_SERVICE_ROLE_KEY = "{{ SUPABASE_SERVICE_ROLE_KEY|escapejs }}";
 
 console.log("BASE TEMPLATE: User ID =", USER_ID);
+console.log("BASE TEMPLATE: User Role =", USER_ROLE);
 console.log("BASE TEMPLATE: Supabase URL exists =", SUPABASE_URL ? "Yes" : "No");
 
 // Supabase initialization
@@ -295,7 +451,86 @@ function initSupabase(useServiceKey = false) {
 // Initialize immediately
 initSupabase(false);
 
-/* ==================== MODAL FUNCTIONS ==================== */
+// Facebook-style time formatter
+function formatNotificationTime(timestamp) {
+    if (!timestamp) return '';
+    
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    // Today
+    if (diffDays === 0) {
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins} min${diffMins > 1 ? 's' : ''} ago`;
+        return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    }
+    
+    // Yesterday
+    if (diffDays === 1) {
+        return 'Yesterday at ' + date.toLocaleTimeString('en-US', { 
+            hour: 'numeric', 
+            minute: '2-digit',
+            hour12: true 
+        });
+    }
+    
+    // This week
+    if (diffDays < 7) {
+        return date.toLocaleDateString('en-US', { weekday: 'long' }) + ' at ' + 
+               date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    }
+    
+    // Older
+    return date.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true 
+    });
+}
+
+// Helper function to format timestamp
+function formatTimestamp(timestamp) {
+    if (!timestamp) return 'Not recorded';
+    const date = new Date(timestamp);
+    return date.toLocaleString('en-US', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit',
+        second: '2-digit'
+    });
+}
+
+// Helper function to calculate time difference
+function getTimeDifference(start, end) {
+    if (!start || !end) return '';
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const diffMs = endDate - startDate;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins} min`;
+    if (diffHours < 24) return `${diffHours}h ${diffMins % 60}m`;
+    return `${diffDays}d ${diffHours % 24}h`;
+}
+
+// Get initials from name
+function getInitials(firstName, lastName) {
+    if (!firstName && !lastName) return 'TN';
+    return (firstName?.charAt(0) || 'T') + (lastName?.charAt(0) || 'N');
+}
+
+/* ==================== ADMIN FUNCTIONS ==================== */
 
 // Custom Confirm Modal
 function showCustomConfirm(title, message, type = 'confirm') {
@@ -349,30 +584,377 @@ function showCustomConfirm(title, message, type = 'confirm') {
     });
 }
 
-// Review Accident Modal
-async function reviewAccident(accidentId) {
+// ==================== VIEW INCIDENT TIMELINE ====================
+async function viewIncidentTimeline(accidentId) {
     try {
         const supabaseClient = initSupabase(false);
-        if (!supabaseClient) throw new Error("Supabase client not initialized");
         
-        // Show loading modal first
+        const modalId = 'timelineModal';
+        let modal = document.getElementById(modalId);
+        
+        if (modal) {
+            modal.remove();
+        }
+        
         document.body.insertAdjacentHTML('beforeend', `
-            <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
-                <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-                    <div class="p-4 border-b border-gray-600 flex justify-between items-center">
-                        <h3 class="text-lg font-bold">Loading Accident Details...</h3>
-                        <button onclick="document.getElementById('reviewModal').remove()" class="text-gray-400 hover:text-white">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                    <div class="p-8 text-center">
-                        <div class="loading-spinner mx-auto"></div>
-                        <p class="mt-4 text-gray-400">Fetching accident data...</p>
+            <div id="${modalId}" class="modal-overlay">
+                <div class="modal-container">
+                    <div class="modal-content max-w-2xl">
+                        <div class="modal-header">
+                            <h3 class="text-lg font-bold text-sky" id="timelineModalTitle">Loading Timeline...</h3>
+                            <button onclick="closeModal('${modalId}')" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="modal-body" id="timelineModalContent">
+                            <div class="text-center py-8">
+                                <div class="loading-spinner mx-auto"></div>
+                                <p class="mt-4 text-gray-400">Fetching timeline...</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         `);
         
+        modal = document.getElementById(modalId);
+        const content = document.getElementById('timelineModalContent');
+        
+        // Get accident details
+        const { data: accident, error } = await supabaseClient
+            .from('accident_detections')
+            .select(`
+                accident_id,
+                detection_time,
+                status,
+                admin_confirmed_at,
+                camera_id,
+                cctv:camera_id (
+                    location_name
+                )
+            `)
+            .eq('accident_id', accidentId)
+            .single();
+        
+        if (error) throw error;
+        
+        // Get all reports for this incident
+        const { data: reports } = await supabaseClient
+            .from('reports')
+            .select(`
+                report_id,
+                submitted_at,
+                generated_by,
+                users!generated_by (
+                    first_name,
+                    last_name,
+                    user_id
+                )
+            `)
+            .eq('detection_id', accidentId)
+            .order('submitted_at', { ascending: true });
+        
+        // Get all alerts
+        const { data: allAlerts } = await supabaseClient
+            .from('alerts')
+            .select(`
+                alert_id,
+                alert_time,
+                response_status,
+                message,
+                sent_to,
+                users!sent_to (
+                    first_name,
+                    last_name,
+                    role,
+                    user_id
+                )
+            `)
+            .eq('detection_id', accidentId)
+            .order('alert_time', { ascending: true });
+        
+        // Filter to ONLY get admin actions
+        const adminActions = allAlerts ? allAlerts.filter(alert => 
+            alert.users && alert.users.role === 'admin'
+        ) : [];
+        
+        // Get tanod responses (both acknowledged and resolved)
+        const tanodResponses = allAlerts ? allAlerts.filter(alert => 
+            alert.users && alert.users.role === 'tanod'
+        ) : [];
+        
+        // Count unique tanods who responded (by user_id)
+        const uniqueTanodIds = new Set();
+        tanodResponses.forEach(response => {
+            if (response.users && response.users.user_id) {
+                uniqueTanodIds.add(response.users.user_id);
+            }
+        });
+        
+        // Count acknowledgments
+        const acknowledgedCount = tanodResponses.filter(r => 
+            r.response_status === 'Acknowledged'
+        ).length;
+        
+        // Count resolved (reports submitted)
+        const resolvedCount = tanodResponses.filter(r => 
+            r.response_status === 'Resolved'
+        ).length;
+        
+        const location = accident.cctv?.location_name || 'Unknown location';
+        document.getElementById('timelineModalTitle').textContent = `Timeline - ${location}`;
+        
+        // Build timeline
+        let timelineHtml = '<div class="space-y-4">';
+        
+        // Detection
+        timelineHtml += `
+            <div class="flex gap-3">
+                <div class="flex-shrink-0 w-8 h-8 bg-alert/20 rounded-full flex items-center justify-center">
+                    <i class="fas fa-exclamation-triangle text-alert text-sm"></i>
+                </div>
+                <div class="flex-1 bg-[#0F172A] p-3 rounded-lg">
+                    <p class="font-semibold">Incident Detected</p>
+                    <p class="text-xs text-gray-400">${formatTimestamp(accident.detection_time)}</p>
+                    <p class="text-xs text-gray-500 mt-1">${formatNotificationTime(accident.detection_time)}</p>
+                    <p class="text-xs text-gray-500 mt-1">Location: ${location}</p>
+                </div>
+            </div>
+        `;
+        
+        // Admin Confirmation
+        if (accident.admin_confirmed_at) {
+            // Get the admin who confirmed
+            const confirmationAlert = adminActions.find(a => 
+                a.message && (a.message.includes('Confirmed') || a.message.includes('dispatched'))
+            );
+            
+            const adminName = confirmationAlert?.users ? 
+                `${confirmationAlert.users.first_name || ''} ${confirmationAlert.users.last_name || ''}`.trim() : 
+                'Admin';
+            
+            timelineHtml += `
+                <div class="flex gap-3">
+                    <div class="flex-shrink-0 w-8 h-8 ${accident.status === 'False_Alarm' ? 'bg-alert/20' : 'bg-sky/20'} rounded-full flex items-center justify-center">
+                        <i class="fas ${accident.status === 'False_Alarm' ? 'fa-times-circle text-alert' : 'fa-check-circle text-sky'} text-sm"></i>
+                    </div>
+                    <div class="flex-1 bg-[#0F172A] p-3 rounded-lg">
+                        <p class="font-semibold">Admin ${accident.status === 'False_Alarm' ? 'Cancelled' : 'Confirmed'} Incident</p>
+                        <p class="text-xs text-gray-400">${formatTimestamp(accident.admin_confirmed_at)}</p>
+                        <p class="text-xs text-gray-500 mt-1">${formatNotificationTime(accident.admin_confirmed_at)}</p>
+                        <p class="text-xs text-sky mt-1">by ${adminName}</p>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Admin Actions (unique)
+        if (adminActions.length > 0) {
+            // Group similar actions
+            const uniqueActions = [];
+            const seen = new Set();
+            
+            adminActions.forEach(action => {
+                const key = `${action.alert_time}-${action.message}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    uniqueActions.push(action);
+                }
+            });
+            
+            uniqueActions.forEach(action => {
+                const admin = action.users;
+                if (!admin) return;
+                
+                let icon = 'fa-check-circle';
+                let bgColor = 'bg-sky';
+                let actionText = 'Reviewed incident';
+                
+                if (action.message?.includes('Confirmed')) {
+                    actionText = 'Confirmed incident and dispatched tanod';
+                } else if (action.message?.includes('False Alarm')) {
+                    actionText = 'Marked as false alarm';
+                    bgColor = 'bg-alert';
+                } else if (action.message?.includes('Decision changed')) {
+                    actionText = 'Re-reviewed and changed decision';
+                    bgColor = 'bg-gold';
+                }
+                
+                const adminName = admin.first_name || admin.last_name ? 
+                    `${admin.first_name || ''} ${admin.last_name || ''}`.trim() : 
+                    'Admin';
+                
+                timelineHtml += `
+                    <div class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 ${bgColor}/20 rounded-full flex items-center justify-center">
+                            <i class="fas ${icon} ${bgColor.replace('bg-', 'text-')} text-sm"></i>
+                        </div>
+                        <div class="flex-1 bg-[#0F172A] p-3 rounded-lg">
+                            <p class="font-semibold">Admin Action</p>
+                            <p class="text-xs text-gray-400">${formatTimestamp(action.alert_time)}</p>
+                            <p class="text-xs text-gray-500 mt-1">${formatNotificationTime(action.alert_time)}</p>
+                            <p class="text-xs text-sky mt-1">by ${adminName}</p>
+                            <p class="text-xs text-gray-300 mt-1">${actionText}</p>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        // Tanod Response Summary - FIXED counting
+        if (tanodResponses.length > 0 || (reports && reports.length > 0)) {
+            // Get unique tanods who submitted reports
+            const reportTanodIds = new Set();
+            if (reports) {
+                reports.forEach(report => {
+                    if (report.generated_by) {
+                        reportTanodIds.add(report.generated_by);
+                    }
+                });
+            }
+            
+            // Combine unique tanod IDs from both responses and reports
+            const allUniqueTanodIds = new Set([...uniqueTanodIds, ...reportTanodIds]);
+            
+            timelineHtml += `
+                <div class="flex gap-3">
+                    <div class="flex-shrink-0 w-8 h-8 bg-gold/20 rounded-full flex items-center justify-center">
+                        <i class="fas fa-users text-gold text-sm"></i>
+                    </div>
+                    <div class="flex-1 bg-[#0F172A] p-3 rounded-lg">
+                        <p class="font-semibold">Tanod Responses</p>
+                        <div class="grid grid-cols-3 gap-2 mt-2 text-center">
+                            <div>
+                                <p class="text-lg font-bold text-gold">${acknowledgedCount}</p>
+                                <p class="text-xs text-gray-400">Acknowledged</p>
+                            </div>
+                            <div>
+                                <p class="text-lg font-bold text-greenlight">${reports?.length || 0}</p>
+                                <p class="text-xs text-gray-400">Reports</p>
+                            </div>
+                            <div>
+                                <p class="text-lg font-bold text-sky">${allUniqueTanodIds.size}</p>
+                                <p class="text-xs text-gray-400">Unique Tanods</p>
+                            </div>
+                        </div>
+                        ${tanodResponses.length > 0 ? `
+                            <p class="text-xs text-gray-300 mt-2">${tanodResponses.length} total response events</p>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            
+            // Show individual tanod acknowledgments if you want (optional)
+            if (tanodResponses.length > 0 && tanodResponses.length < 5) { // Only show if few responses
+                const uniqueResponses = [];
+                const seenTanod = new Set();
+                
+                tanodResponses.forEach(response => {
+                    const tanodId = response.users?.user_id;
+                    if (tanodId && !seenTanod.has(tanodId)) {
+                        seenTanod.add(tanodId);
+                        uniqueResponses.push(response);
+                    }
+                });
+                
+                uniqueResponses.forEach(response => {
+                    const tanod = response.users;
+                    if (!tanod) return;
+                    
+                    const tanodName = `${tanod.first_name || ''} ${tanod.last_name || ''}`.trim() || 'Tanod';
+                    
+                    timelineHtml += `
+                        <div class="flex gap-3 ml-8 mt-1">
+                            <div class="flex-shrink-0 w-6 h-6 bg-gold/10 rounded-full flex items-center justify-center">
+                                <i class="fas fa-user-shield text-gold text-xs"></i>
+                            </div>
+                            <div class="flex-1">
+                                <p class="text-xs text-gray-300">
+                                    <span class="font-medium text-gold">${tanodName}</span> acknowledged the alert
+                                </p>
+                                <p class="text-xs text-gray-500">${formatNotificationTime(response.alert_time)}</p>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+        }
+        
+        // Reports
+        if (reports && reports.length > 0) {
+            reports.forEach(report => {
+                const tanod = report.users;
+                const tanodName = tanod ? 
+                    `${tanod.first_name || ''} ${tanod.last_name || ''}`.trim() : 
+                    'Tanod';
+                
+                timelineHtml += `
+                    <div class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-greenlight/20 rounded-full flex items-center justify-center">
+                            <i class="fas fa-file-alt text-greenlight text-sm"></i>
+                        </div>
+                        <div class="flex-1 bg-[#0F172A] p-3 rounded-lg cursor-pointer hover:bg-[#1E293B]"
+                             onclick="viewFullReport(${report.report_id}); closeModal('${modalId}');">
+                            <p class="font-semibold">Report Submitted</p>
+                            <p class="text-xs text-gray-400">${formatTimestamp(report.submitted_at)}</p>
+                            <p class="text-xs text-gray-500 mt-1">${formatNotificationTime(report.submitted_at)}</p>
+                            <p class="text-xs text-sky mt-1">By: ${tanodName}</p>
+                            <p class="text-xs text-gray-500 mt-1">Click to view details →</p>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        timelineHtml += '</div>';
+        content.innerHTML = timelineHtml;
+        
+    } catch (error) {
+        console.error('Error loading timeline:', error);
+        showToast('Failed to load timeline', 'error');
+        closeModal('timelineModal');
+    }
+}
+
+// ==================== VIEW INCIDENT MODAL (READ-ONLY) ====================
+// For viewing incident details WITHOUT decision buttons - LATEST VERSION
+async function viewIncident(accidentId) {
+    try {
+        const supabaseClient = initSupabase(false);
+        if (!supabaseClient) throw new Error("Supabase client not initialized");
+        
+        const modalId = 'viewIncidentModal';
+        let modal = document.getElementById(modalId);
+        
+        if (modal) {
+            modal.remove();
+        }
+        
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="${modalId}" class="modal-overlay">
+                <div class="modal-container">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 class="text-lg font-bold text-sky">Loading Incident Details...</h3>
+                            <button onclick="closeModal('${modalId}')" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="modal-body" id="viewIncidentModalContent">
+                            <div class="text-center py-8">
+                                <div class="loading-spinner mx-auto"></div>
+                                <p class="mt-4 text-gray-400">Fetching incident data...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+        modal = document.getElementById(modalId);
+        const content = document.getElementById('viewIncidentModalContent');
+        
+        // Get accident details
         const { data: accident, error } = await supabaseClient
             .from('accident_detections')
             .select(`
@@ -382,6 +964,7 @@ async function reviewAccident(accidentId) {
                 frame_image,
                 video_clip,
                 camera_id,
+                admin_confirmed_at,
                 cctv:camera_id (
                     location_name,
                     status
@@ -392,144 +975,786 @@ async function reviewAccident(accidentId) {
         
         if (error) throw error;
         
-        // Remove loading modal
-        document.getElementById('reviewModal').remove();
+        // Get all reports
+        const { data: reports } = await supabaseClient
+            .from('reports')
+            .select(`
+                report_id,
+                report_date,
+                remarks,
+                photo_url,
+                submitted_at,
+                generated_by,
+                users!generated_by (
+                    first_name,
+                    last_name,
+                    user_id
+                )
+            `)
+            .eq('detection_id', accidentId)
+            .order('submitted_at', { ascending: false });
         
-        const detectionTime = new Date(accident.detection_time).toLocaleString();
+        // ===== FIX: Get ONLY the CONFIRMATION action, not all admin alerts =====
+        // Get the specific admin who confirmed (from accident_detections)
+        let adminConfirmation = null;
+        if (accident.admin_confirmed_at) {
+            // Try to find which admin confirmed by looking for a confirmation message
+            const { data: confirmationAlert } = await supabaseClient
+                .from('alerts')
+                .select(`
+                    alert_time,
+                    message,
+                    users!sent_to (
+                        first_name,
+                        last_name
+                    )
+                `)
+                .eq('detection_id', accidentId)
+                .eq('users.role', 'admin')
+                .or('message.ilike.%Confirmed%,message.ilike.%dispatched%')
+                .order('alert_time', { ascending: true })
+                .limit(1)
+                .maybeSingle();
+            
+            adminConfirmation = confirmationAlert;
+        }
+        
+        // Get re-review actions (decision changes)
+        const { data: reReviewActions } = await supabaseClient
+            .from('alerts')
+            .select(`
+                alert_time,
+                message,
+                users!sent_to (
+                    first_name,
+                    last_name
+                )
+            `)
+            .eq('detection_id', accidentId)
+            .eq('users.role', 'admin')
+            .ilike('message', '%Decision changed%')
+            .order('alert_time', { ascending: true });
+        
+        const detectionTime = formatTimestamp(accident.detection_time);
+        const confirmedTime = accident.admin_confirmed_at ? formatTimestamp(accident.admin_confirmed_at) : null;
         const locationName = accident.cctv?.location_name || 
             (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
         
-        document.body.insertAdjacentHTML('beforeend', `
-            <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
-                <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-                    <div class="p-4 md:p-6 border-b border-gray-600 flex justify-between items-center">
+        // Build reports HTML
+        let reportsHtml = '';
+        if (reports && reports.length > 0) {
+            reportsHtml = `
+                <div class="mb-6">
+                    <h4 class="font-semibold mb-3 flex items-center gap-2">
+                        <i class="fas fa-file-alt text-greenlight"></i> Tanod Reports (${reports.length})
+                    </h4>
+                    <div class="space-y-3">
+                        ${reports.map(report => `
+                            <div class="report-card" onclick="viewFullReport(${report.report_id})">
+                                <div class="flex items-start gap-3">
+                                    ${report.photo_url ? `
+                                        <img src="${report.photo_url}" 
+                                             class="report-photo"
+                                             onclick="event.stopPropagation(); window.open('${report.photo_url}', '_blank')"
+                                             title="Click to enlarge">
+                                    ` : `
+                                        <div class="w-[80px] h-[80px] bg-[#112240] rounded flex items-center justify-center">
+                                            <i class="fas fa-image text-2xl text-gray-600"></i>
+                                        </div>
+                                    `}
+                                    <div class="flex-1">
+                                        <div class="flex justify-between items-start">
+                                            <div>
+                                                <p class="text-sm font-semibold text-sky">${report.users?.first_name || 'Tanod'} ${report.users?.last_name || ''}</p>
+                                                <p class="text-xs text-gray-500">${formatNotificationTime(report.submitted_at)}</p>
+                                            </div>
+                                            <span class="text-xs bg-sky/10 text-sky px-2 py-1 rounded">
+                                                View Full Report →
+                                            </span>
+                                        </div>
+                                        ${report.remarks ? `
+                                            <p class="text-xs mt-2 text-gray-300 line-clamp-2">${report.remarks}</p>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // ===== FIX: Build clean admin timeline =====
+        let adminTimelineHtml = '';
+        
+        // Add confirmation action (only once)
+        if (accident.admin_confirmed_at) {
+            const adminName = adminConfirmation?.users ? 
+                `${adminConfirmation.users.first_name || ''} ${adminConfirmation.users.last_name || ''}`.trim() : 
+                'Admin';
+            
+            const actionText = accident.status === 'False_Alarm' ? 
+                'Marked as false alarm' : 
+                'Confirmed incident and dispatched tanod';
+            
+            adminTimelineHtml += `
+                <div class="flex items-start gap-2 text-xs mb-3">
+                    <div class="flex-shrink-0 w-6 h-6 ${accident.status === 'False_Alarm' ? 'bg-alert/20' : 'bg-sky/20'} rounded-full flex items-center justify-center">
+                        <i class="fas ${accident.status === 'False_Alarm' ? 'fa-times-circle text-alert' : 'fa-check-circle text-sky'} text-[10px]"></i>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-gray-300">
+                            <span class="font-semibold text-sky">Admin ${adminName}</span>
+                            ${actionText}
+                        </p>
+                        <p class="text-gray-500 text-[9px]">${formatNotificationTime(accident.admin_confirmed_at)}</p>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Add re-review actions (if any)
+        if (reReviewActions && reReviewActions.length > 0) {
+            reReviewActions.forEach(action => {
+                const adminName = action.users ? 
+                    `${action.users.first_name || ''} ${action.users.last_name || ''}`.trim() : 
+                    'Admin';
+                
+                adminTimelineHtml += `
+                    <div class="flex items-start gap-2 text-xs mb-3">
+                        <div class="flex-shrink-0 w-6 h-6 bg-gold/20 rounded-full flex items-center justify-center">
+                            <i class="fas fa-undo-alt text-gold text-[10px]"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-gray-300">
+                                <span class="font-semibold text-gold">Admin ${adminName}</span>
+                                Re-reviewed and changed decision
+                            </p>
+                            <p class="text-gray-500 text-[9px]">${formatNotificationTime(action.alert_time)}</p>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        // If no admin actions, show message
+        if (!adminTimelineHtml) {
+            adminTimelineHtml = `
+                <div class="text-xs text-gray-500 italic p-2">
+                    No admin actions recorded
+                </div>
+            `;
+        } else {
+            adminTimelineHtml = `
+                <div class="mb-6">
+                    <h4 class="font-semibold mb-3 flex items-center gap-2">
+                        <i class="fas fa-user-shield text-sky"></i> Admin Actions
+                    </h4>
+                    <div class="timeline-scroll">
+                        ${adminTimelineHtml}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Get tanod responses summary
+        const { data: tanodResponses } = await supabaseClient
+            .from('alerts')
+            .select('response_status')
+            .eq('detection_id', accidentId)
+            .eq('users.role', 'tanod');
+        
+        // Build tanod summary
+        let tanodSummaryHtml = '';
+        if (tanodResponses && tanodResponses.length > 0) {
+            const acknowledgedCount = tanodResponses.filter(r => r.response_status === 'Acknowledged').length;
+            const resolvedCount = reports?.length || 0;
+            
+            tanodSummaryHtml = `
+                <div class="mb-6 p-4 bg-[#112240] rounded-lg border border-gray-700">
+                    <h4 class="font-semibold mb-3 flex items-center gap-2">
+                        <i class="fas fa-users text-gold"></i> Tanod Response Summary
+                    </h4>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="text-center">
+                            <p class="text-2xl font-bold text-gold">${acknowledgedCount}</p>
+                            <p class="text-xs text-gray-400">Tanods Acknowledged</p>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-2xl font-bold text-greenlight">${resolvedCount}</p>
+                            <p class="text-xs text-gray-400">Reports Submitted</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Determine status display
+        let statusDisplay = '';
+        let statusColor = '';
+        let statusIcon = '';
+        let statusMessage = '';
+        
+        switch(accident.status) {
+            case 'Verified':
+                statusDisplay = '✓ RESOLVED';
+                statusColor = 'text-greenlight';
+                statusIcon = 'fa-check-circle';
+                statusMessage = 'This incident has been resolved. Tanod report has been submitted and verified.';
+                break;
+            case 'False_Alarm':
+                statusDisplay = '✗ FALSE ALARM';
+                statusColor = 'text-alert';
+                statusIcon = 'fa-times-circle';
+                statusMessage = 'This incident was determined to be a false alarm. No action needed.';
+                break;
+            case 'Admin_Confirmed':
+                statusDisplay = '🚨 DISPATCHED';
+                statusColor = 'text-sky';
+                statusIcon = 'fa-paper-plane';
+                statusMessage = 'Tanod has been dispatched and is responding to the incident.';
+                break;
+            default:
+                statusDisplay = '⏳ PENDING REVIEW';
+                statusColor = 'text-gold';
+                statusIcon = 'fa-clock';
+                statusMessage = 'Awaiting admin review.';
+        }
+        
+        content.innerHTML = `
+            <div class="space-y-6">
+                <!-- Header Info -->
+                <div>
+                    <h3 class="text-lg md:text-xl font-bold">Incident #${accident.accident_id}</h3>
+                    <p class="text-sm text-gray-400">
+                        <i class="fas fa-map-marker-alt mr-1"></i> ${locationName}
+                    </p>
+                    <div class="flex flex-wrap gap-2 mt-2">
+                        <span class="timestamp-badge">
+                            <i class="fas fa-clock"></i> Detected: ${formatNotificationTime(accident.detection_time)}
+                        </span>
+                        ${confirmedTime ? `
+                        <span class="timestamp-badge">
+                            <i class="fas fa-check-circle"></i> Reviewed: ${formatNotificationTime(accident.admin_confirmed_at)}
+                        </span>
+                        ` : ''}
+                    </div>
+                </div>
+
+                <!-- Status Banner -->
+                <div class="p-4 ${accident.status === 'Pending' ? 'bg-gold/20 border border-gold/30' : accident.status === 'Admin_Confirmed' ? 'bg-sky/20 border border-sky/30' : accident.status === 'Verified' ? 'bg-greenlight/20 border border-greenlight/30' : 'bg-alert/20 border border-alert/30'} rounded-lg">
+                    <div class="flex items-center gap-3">
+                        <i class="fas ${statusIcon} ${statusColor} text-xl"></i>
                         <div>
-                            <h3 class="text-lg md:text-xl font-bold">Review Accident #${accident.accident_id}</h3>
-                            <p class="text-sm text-gray-400">
-                                <i class="fas fa-map-marker-alt mr-1"></i> ${locationName} &bull;
-                                <i class="fas fa-clock mr-1"></i> ${detectionTime}
+                            <p class="font-medium">Status: <span class="${statusColor} font-bold">${statusDisplay}</span></p>
+                            <p class="text-xs text-gray-400 mt-1">${statusMessage}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Actions Timeline (Now Clean!) -->
+                ${adminTimelineHtml}
+
+                <!-- Tanod Response Summary -->
+                ${tanodSummaryHtml}
+
+                <!-- Tanod Reports Section -->
+                ${reportsHtml}
+
+                  <!-- Media Grid -->
+<div class="grid grid-cols-1 gap-4">
+    <div>
+        <h4 class="font-semibold mb-2 flex items-center gap-2">
+            <i class="fas fa-video text-sky"></i> Video Evidence
+        </h4>
+        ${accident.video_clip ? `
+            <div class="w-full">
+                <video src="${accident.video_clip}" controls
+                       class="w-full rounded-lg border border-gray-600 bg-black"
+                       style="max-height: 300px; width: 100%; object-fit: contain;">
+                    Your browser does not support the video tag.
+                </video>
+                <p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Video clip from time of detection</p>
+            </div>
+        ` : `
+            <div class="bg-[#112240] rounded-lg p-8 text-center text-gray-500 border border-gray-600">
+                <i class="fas fa-video-slash text-4xl mb-3 text-gray-600"></i>
+                <p class="text-base">No video available</p>
+                <p class="text-sm text-gray-600 mt-2">Video will appear once CCTV is integrated</p>
+            </div>
+        `}
+    </div>
+</div>
+
+                <!-- Detection Details -->
+                <div class="p-4 bg-[#112240] rounded-lg border border-gray-600">
+                    <h4 class="font-semibold mb-3 flex items-center gap-2">
+                        <i class="fas fa-info-circle text-sky"></i> Detection Details
+                    </h4>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <div>
+                            <p class="text-xs text-gray-400">Camera ID</p>
+                            <p class="font-medium">${accident.camera_id || 'Not assigned'}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Location</p>
+                            <p class="font-medium">${locationName}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Camera Status</p>
+                            <p class="font-medium ${accident.cctv?.status === 'Active' ? 'text-greenlight' : 'text-alert'}">
+                                ${accident.cctv?.status || 'Unknown'}
                             </p>
                         </div>
-                        <button onclick="document.getElementById('reviewModal').remove()" 
-                                class="text-gray-400 hover:text-white text-xl">
-                            <i class="fas fa-times"></i>
-                        </button>
+                        <div>
+                            <p class="text-xs text-gray-400">Detection Time</p>
+                            <p class="font-medium text-xs">${detectionTime}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Accident ID</p>
+                            <p class="font-medium text-xs">#${accident.accident_id}</p>
+                        </div>
                     </div>
-                    
-                    <div class="p-4 md:p-6 overflow-y-auto" style="max-height: calc(90vh - 120px);">
-                        <!-- Status Banner -->
-                        <div class="mb-6 p-4 ${accident.status === 'Pending' ? 'bg-gold/20 border border-gold/30' : 'bg-gray-700/20 border border-gray-600'} rounded-lg">
-                            <div class="flex items-center gap-3">
-                                <i class="fas ${accident.status === 'Pending' ? 'fa-clock text-gold' : 'fa-check-circle text-greenlight'} text-xl"></i>
-                                <div>
-                                    <p class="font-medium">Current Status: <span class="${accident.status === 'Pending' ? 'text-gold' : 'text-greenlight'}">${accident.status === 'Pending' ? 'Pending Review' : accident.status}</span></p>
-                                    <p class="text-xs text-gray-400 mt-1">
-                                        ${accident.status === 'Pending' ? 'Review the footage and decide: Is this a real accident or false alarm?' : 'This accident has already been reviewed.'}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                </div>
 
-                        <!-- Media Grid -->
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-                            <div>
-                                <h4 class="font-semibold mb-2 flex items-center gap-2">
-                                    <i class="fas fa-image text-gold"></i> Detection Frame
-                                </h4>
-                                ${accident.frame_image ? `
-                                    <img src="${accident.frame_image}" alt="Accident frame"
-                                         class="w-full rounded-lg border border-gray-600 cursor-pointer hover:opacity-90 transition"
-                                         style="max-height: 200px; object-fit: cover;"
-                                         onclick="window.open('${accident.frame_image}', '_blank')"
-                                         title="Click to enlarge">
-                                    <p class="text-xs text-gray-400 mt-1"><i class="fas fa-search-plus"></i> Click image to enlarge</p>
-                                ` : `
-                                    <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
-                                        <i class="fas fa-image text-3xl mb-2 text-gray-600"></i>
-                                        <p class="text-sm">No frame image available</p>
-                                        <p class="text-xs text-gray-600 mt-1">Image will appear once CCTV is integrated</p>
-                                    </div>
-                                `}
-                            </div>
-                            <div>
-                                <h4 class="font-semibold mb-2 flex items-center gap-2">
-                                    <i class="fas fa-video text-sky"></i> Video Evidence
-                                </h4>
-                                ${accident.video_clip ? `
-                                    <video src="${accident.video_clip}" controls
-                                           class="w-full rounded-lg border border-gray-600 bg-black"
-                                           style="max-height: 200px;">
-                                        Your browser does not support the video tag.
-                                    </video>
-                                    <p class="text-xs text-gray-400 mt-1"><i class="fas fa-info-circle"></i> Video clip from time of detection</p>
-                                ` : `
-                                    <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
-                                        <i class="fas fa-video-slash text-3xl mb-2 text-gray-600"></i>
-                                        <p class="text-sm">No video available</p>
-                                        <p class="text-xs text-gray-600 mt-1">Video will appear once CCTV is integrated</p>
-                                    </div>
-                                `}
-                            </div>
+                <!-- Summary Section for Resolved Incidents -->
+                ${accident.status === 'Verified' || accident.status === 'False_Alarm' ? `
+                <div class="p-4 bg-[#112240] rounded-lg border border-gray-700">
+                    <h4 class="font-semibold mb-3 flex items-center gap-2">
+                        <i class="fas fa-clipboard-check text-greenlight"></i> Incident Summary
+                    </h4>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                        <div>
+                            <p class="text-2xl font-bold text-sky">${getTimeDifference(accident.detection_time, accident.admin_confirmed_at || accident.detection_time)}</p>
+                            <p class="text-xs text-gray-400">Response Time</p>
                         </div>
-
-                        <!-- Detection Details -->
-                        <div class="mb-6 p-4 bg-[#112240] rounded-lg border border-gray-600">
-                            <h4 class="font-semibold mb-3 flex items-center gap-2">
-                                <i class="fas fa-info-circle text-sky"></i> Detection Details
-                            </h4>
-                            <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                <div>
-                                    <p class="text-xs text-gray-400">Camera ID</p>
-                                    <p class="font-medium">${accident.camera_id || 'Not assigned'}</p>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-gray-400">Location</p>
-                                    <p class="font-medium">${locationName}</p>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-gray-400">Camera Status</p>
-                                    <p class="font-medium ${accident.cctv?.status === 'Active' ? 'text-greenlight' : 'text-alert'}">
-                                        ${accident.cctv?.status || 'Unknown'}
-                                    </p>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-gray-400">Detection Time</p>
-                                    <p class="font-medium text-xs">${detectionTime}</p>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-gray-400">Accident ID</p>
-                                    <p class="font-medium text-xs">#${accident.accident_id}</p>
-                                </div>
-                            </div>
+                        <div>
+                            <p class="text-2xl font-bold text-gold">${reports?.length || 0}</p>
+                            <p class="text-xs text-gray-400">Report${reports?.length !== 1 ? 's' : ''}</p>
                         </div>
+                        <div>
+                            <p class="text-2xl font-bold ${accident.status === 'Verified' ? 'text-greenlight' : 'text-alert'}">
+                                ${accident.status === 'Verified' ? '✓' : '✗'}
+                            </p>
+                            <p class="text-xs text-gray-400">Outcome</p>
+                        </div>
+                        <div>
+                            <p class="text-2xl font-bold text-sky">${1 + (reports?.length || 0)}</p>
+                            <p class="text-xs text-gray-400">Total Events</p>
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
 
-                        <!-- Action Buttons -->
-                        <div class="flex flex-col sm:flex-row gap-3 justify-end">
-                            <button onclick="verifyAccident(${accident.accident_id}, false, true)"
-                                    class="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
-                                <i class="fas fa-times-circle"></i> False Alarm (Cancel)
-                            </button>
-                            <button onclick="verifyAccident(${accident.accident_id}, true, true)"
-                                    class="bg-greenlight hover:bg-greenlight/80 text-white px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
-                                <i class="fas fa-check-circle"></i> Confirm &amp; Dispatch Tanod
+                <!-- CLOSE BUTTON ONLY -->
+                <div class="flex justify-end mt-6">
+                    <button onclick="closeModal('${modalId}')"
+                            class="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition">
+                        Close
+                    </button>
+                </div>
+            </div>
+        `;
+        
+    } catch (error) {
+        console.error('Error in viewIncident:', error);
+        const modal = document.getElementById('viewIncidentModal');
+        if (modal) modal.remove();
+        showToast('Failed to load incident details: ' + error.message, 'error');
+    }
+}
+
+// ==================== REVIEW INCIDENT MODAL (WITH DECISION BUTTONS) ====================
+// For reviewing PENDING incidents only
+async function reviewAccident(accidentId) {
+    try {
+        const supabaseClient = initSupabase(false);
+        if (!supabaseClient) throw new Error("Supabase client not initialized");
+        
+        const modalId = 'reviewModal';
+        let modal = document.getElementById(modalId);
+        
+        if (modal) {
+            modal.remove();
+        }
+        
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="${modalId}" class="modal-overlay">
+                <div class="modal-container">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 class="text-lg font-bold text-sky">Loading Incident Details...</h3>
+                            <button onclick="closeModal('${modalId}')" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times"></i>
                             </button>
                         </div>
-
-                        <p class="text-xs text-gray-500 text-center mt-4">
-                            <i class="fas fa-shield-alt"></i>
-                            <strong>Confirm:</strong> Tanod dispatched, they will verify on-site &nbsp;&bull;&nbsp;
-                            <strong>False Alarm:</strong> Incident cancelled immediately
-                        </p>
+                        <div class="modal-body" id="reviewModalContent">
+                            <div class="text-center py-8">
+                                <div class="loading-spinner mx-auto"></div>
+                                <p class="mt-4 text-gray-400">Fetching incident data...</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         `);
         
+        modal = document.getElementById(modalId);
+        const content = document.getElementById('reviewModalContent');
+        
+        // Get accident details
+        const { data: accident, error } = await supabaseClient
+            .from('accident_detections')
+            .select(`
+                accident_id,
+                detection_time,
+                status,
+                frame_image,
+                video_clip,
+                camera_id,
+                admin_confirmed_at,
+                cctv:camera_id (
+                    location_name,
+                    status
+                )
+            `)
+            .eq('accident_id', accidentId)
+            .single();
+        
+        if (error) throw error;
+        
+        const detectionTime = formatTimestamp(accident.detection_time);
+        const locationName = accident.cctv?.location_name || 
+            (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
+        
+        // Check if incident is still pending
+        if (accident.status !== 'Pending') {
+            // If not pending, switch to view-only mode
+            closeModal(modalId);
+            viewIncident(accidentId);
+            return;
+        }
+        
+        content.innerHTML = `
+            <div class="space-y-6">
+                <!-- Header Info -->
+                <div>
+                    <h3 class="text-lg md:text-xl font-bold">Review Incident #${accident.accident_id}</h3>
+                    <p class="text-sm text-gray-400">
+                        <i class="fas fa-map-marker-alt mr-1"></i> ${locationName}
+                    </p>
+                    <div class="flex flex-wrap gap-2 mt-2">
+                        <span class="timestamp-badge">
+                            <i class="fas fa-clock"></i> Detected: ${formatNotificationTime(accident.detection_time)}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Status Banner -->
+                <div class="p-4 bg-gold/20 border border-gold/30 rounded-lg">
+                    <div class="flex items-center gap-3">
+                        <i class="fas fa-clock text-gold text-xl"></i>
+                        <div>
+                            <p class="font-medium">Status: <span class="text-gold font-bold">⏳ PENDING REVIEW</span></p>
+                            <p class="text-xs text-gray-400 mt-1">Review the footage and decide: Is this a real accident or false alarm?</p>
+                        </div>
+                    </div>
+                </div>
+
+                    <!-- Media Grid -->
+<div class="grid grid-cols-1 gap-4">
+    <div>
+        <h4 class="font-semibold mb-2 flex items-center gap-2">
+            <i class="fas fa-video text-sky"></i> Video Evidence
+        </h4>
+        ${accident.video_clip ? `
+            <div class="w-full">
+                <video src="${accident.video_clip}" controls
+                       class="w-full rounded-lg border border-gray-600 bg-black"
+                       style="max-height: 300px; width: 100%; object-fit: contain;">
+                    Your browser does not support the video tag.
+                </video>
+                <p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Video clip from time of detection</p>
+            </div>
+        ` : `
+            <div class="bg-[#112240] rounded-lg p-8 text-center text-gray-500 border border-gray-600">
+                <i class="fas fa-video-slash text-4xl mb-3 text-gray-600"></i>
+                <p class="text-base">No video available</p>
+                <p class="text-sm text-gray-600 mt-2">Video will appear once CCTV is integrated</p>
+            </div>
+        `}
+    </div>
+</div>
+
+                <!-- Detection Details -->
+                <div class="p-4 bg-[#112240] rounded-lg border border-gray-600">
+                    <h4 class="font-semibold mb-3 flex items-center gap-2">
+                        <i class="fas fa-info-circle text-sky"></i> Detection Details
+                    </h4>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <div>
+                            <p class="text-xs text-gray-400">Camera ID</p>
+                            <p class="font-medium">${accident.camera_id || 'Not assigned'}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Location</p>
+                            <p class="font-medium">${locationName}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Camera Status</p>
+                            <p class="font-medium ${accident.cctv?.status === 'Active' ? 'text-greenlight' : 'text-alert'}">
+                                ${accident.cctv?.status || 'Unknown'}
+                            </p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Detection Time</p>
+                            <p class="font-medium text-xs">${detectionTime}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Accident ID</p>
+                            <p class="font-medium text-xs">#${accident.accident_id}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Decision Buttons -->
+                <div class="flex flex-col sm:flex-row gap-3 justify-end mt-6">
+                    <button onclick="verifyAccident(${accident.accident_id}, false, true)"
+                            class="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
+                        <i class="fas fa-times-circle"></i> False Alarm
+                    </button>
+                    <button onclick="verifyAccident(${accident.accident_id}, true, true)"
+                            class="bg-greenlight hover:bg-greenlight/80 text-white px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
+                        <i class="fas fa-check-circle"></i> Confirm & Dispatch Tanod
+                    </button>
+                </div>
+                
+                <!-- Help text -->
+                <p class="text-xs text-gray-500 text-center mt-2">
+                    <i class="fas fa-shield-alt"></i>
+                    <strong>Confirm:</strong> Tanod dispatched, they will verify on-site &nbsp;&bull;&nbsp;
+                    <strong>False Alarm:</strong> Incident cancelled immediately
+                </p>
+            </div>
+        `;
+        
     } catch (error) {
         console.error('Error in reviewAccident:', error);
         const modal = document.getElementById('reviewModal');
         if (modal) modal.remove();
-        showToast('Failed to load accident details: ' + error.message, 'error');
+        showToast('Failed to load incident details: ' + error.message, 'error');
+    }
+}
+
+// View Full Report with Tanod Details
+async function viewFullReport(reportId) {
+    try {
+        const supabaseClient = initSupabase(false);
+        
+        const modalId = 'reportModal';
+        let modal = document.getElementById(modalId);
+        
+        if (modal) {
+            modal.remove();
+        }
+        
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="${modalId}" class="modal-overlay">
+                <div class="modal-container">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 class="text-lg font-bold text-sky" id="reportModalTitle">Loading Report...</h3>
+                            <button onclick="closeModal('${modalId}')" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="modal-body" id="reportModalContent">
+                            <div class="text-center py-8">
+                                <div class="loading-spinner mx-auto"></div>
+                                <p class="mt-4 text-gray-400">Fetching report details...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+        modal = document.getElementById(modalId);
+        const content = document.getElementById('reportModalContent');
+        
+        // Fetch report with all related data
+        const { data: report, error } = await supabaseClient
+            .from('reports')
+            .select(`
+                report_id,
+                detection_id,
+                remarks,
+                photo_url,
+                submitted_at,
+                generated_by,
+                users!generated_by (
+                    user_id,
+                    first_name,
+                    last_name,
+                    email
+                ),
+                accident_detections!detection_id (
+                    accident_id,
+                    detection_time,
+                    status,
+                    admin_confirmed_at,
+                    camera_id,
+                    cctv:camera_id (
+                        location_name,
+                        status,
+                        ip_address
+                    )
+                )
+            `)
+            .eq('report_id', reportId)
+            .single();
+        
+        if (error) throw error;
+        
+        const accident = report.accident_detections;
+        const tanod = report.users;
+        const location = accident?.cctv?.location_name || 'Unknown location';
+        const responseTime = accident.admin_confirmed_at ? 
+            getTimeDifference(accident.detection_time, accident.admin_confirmed_at) : 'N/A';
+        
+        document.getElementById('reportModalTitle').textContent = `Report #${report.report_id} - ${location}`;
+        
+        content.innerHTML = `
+            <div class="space-y-6">
+                <!-- Tanod Information -->
+                <div class="bg-[#112240] p-5 rounded-lg border border-gray-700">
+                    <h4 class="font-semibold mb-4 text-sky flex items-center gap-2">
+                        <i class="fas fa-user-shield"></i> Responding Tanod
+                    </h4>
+                    <div class="flex items-start gap-4">
+                        <div class="tanod-avatar">
+                            ${getInitials(tanod?.first_name, tanod?.last_name)}
+                        </div>
+                        <div class="flex-1">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <p class="text-xs text-gray-400">Name</p>
+                                    <p class="font-medium">${tanod?.first_name || 'Unknown'} ${tanod?.last_name || ''}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-400">Tanod ID</p>
+                                    <p class="font-medium text-sky">#${tanod?.user_id || 'N/A'}</p>
+                                </div>
+                                <div class="col-span-2">
+                                    <p class="text-xs text-gray-400">Email</p>
+                                    <p class="text-sm">${tanod?.email || 'Not provided'}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Report Details -->
+                <div class="bg-[#112240] p-5 rounded-lg border border-gray-700">
+                    <h4 class="font-semibold mb-4 text-sky flex items-center gap-2">
+                        <i class="fas fa-file-alt"></i> Report Details
+                    </h4>
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <p class="text-xs text-gray-400">Submitted</p>
+                            <p class="font-medium">${formatTimestamp(report.submitted_at)}</p>
+                            <p class="text-xs text-gray-500 mt-1">${formatNotificationTime(report.submitted_at)}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Incident Status</p>
+                            <p class="font-medium">
+                                <span class="px-2 py-1 rounded text-xs ${
+                                    accident.status === 'Verified' ? 'bg-greenlight/10 text-greenlight' :
+                                    accident.status === 'False_Alarm' ? 'bg-alert/10 text-alert' :
+                                    'bg-gold/10 text-gold'
+                                }">
+                                    ${accident.status === 'Verified' ? '✓ VERIFIED' : 
+                                      accident.status === 'False_Alarm' ? '✗ FALSE ALARM' : 
+                                      accident.status}
+                                </span>
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <!-- Remarks -->
+                    <div class="mt-4">
+                        <p class="text-xs text-gray-400 mb-2">Remarks / Actions Taken</p>
+                        <div class="bg-[#0F172A] p-4 rounded-lg">
+                            <p class="text-sm whitespace-pre-wrap">${report.remarks || 'No remarks provided'}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Incident Details -->
+                <div class="bg-[#112240] p-5 rounded-lg border border-gray-700">
+                    <h4 class="font-semibold mb-4 text-sky flex items-center gap-2">
+                        <i class="fas fa-car-crash"></i> Incident Details
+                    </h4>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-xs text-gray-400">Location</p>
+                            <p class="font-medium">${location}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Camera</p>
+                            <p class="font-medium">${accident.camera_id || 'N/A'}</p>
+                            <p class="text-xs ${accident.cctv?.status === 'Active' ? 'text-greenlight' : 'text-gray-500'}">
+                                ${accident.cctv?.status || 'Unknown'}
+                            </p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Detection Time</p>
+                            <p class="font-medium">${formatTimestamp(accident.detection_time)}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">Admin Response</p>
+                            <p class="font-medium">${accident.admin_confirmed_at ? formatTimestamp(accident.admin_confirmed_at) : 'N/A'}</p>
+                            <p class="text-xs text-gray-500">${responseTime} after detection</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Photo Evidence -->
+                ${report.photo_url ? `
+                <div class="bg-[#112240] p-5 rounded-lg border border-gray-700">
+                    <h4 class="font-semibold mb-4 text-sky flex items-center gap-2">
+                        <i class="fas fa-camera"></i> Scene Photo
+                    </h4>
+                    <div class="flex justify-center">
+                        <img src="${report.photo_url}" 
+                             class="report-photo-large cursor-pointer"
+                             onclick="window.open('${report.photo_url}', '_blank')"
+                             alt="Scene photo">
+                    </div>
+                    <p class="text-xs text-center text-gray-400 mt-2">
+                        <i class="fas fa-search-plus"></i> Click photo to enlarge
+                    </p>
+                </div>
+                ` : ''}
+
+                <!-- Action Buttons -->
+                <div class="flex gap-3 justify-end pt-4">
+                    <button onclick="viewIncidentTimeline(${accident.accident_id})"
+                            class="bg-sky/10 hover:bg-sky/20 text-sky px-4 py-2 rounded-lg transition flex items-center gap-2">
+                        <i class="fas fa-clock"></i> View Timeline
+                    </button>
+                    <button onclick="viewIncident(${accident.accident_id}); closeModal('${modalId}');"
+                            class="bg-gold/10 hover:bg-gold/20 text-gold px-4 py-2 rounded-lg transition flex items-center gap-2">
+                        <i class="fas fa-eye"></i> View Incident
+                    </button>
+                </div>
+            </div>
+        `;
+        
+    } catch (error) {
+        console.error('Error loading report:', error);
+        showToast('Failed to load report details: ' + error.message, 'error');
+        closeModal('reportModal');
     }
 }
 
@@ -538,24 +1763,34 @@ async function reReviewAccident(accidentId, currentStatus) {
     try {
         const confirmed = await showCustomConfirm(
             'Re-review Accident',
-            `This accident is currently marked as "${currentStatus === 'Admin_Confirmed' ? 'Dispatched' : 'False Alarm'}". Do you want to change this decision?`,
+            `This accident is currently marked as "${currentStatus === 'Admin_Confirmed' ? 'Dispatched' : currentStatus === 'Verified' ? 'Verified' : 'False Alarm'}". Do you want to change this decision?`,
             'warning'
         );
         if (!confirmed) return;
         
-        // Show loading modal
+        const modalId = 'reviewModal';
+        let modal = document.getElementById(modalId);
+        
+        if (modal) {
+            modal.remove();
+        }
+        
         document.body.insertAdjacentHTML('beforeend', `
-            <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
-                <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-                    <div class="p-4 border-b border-gray-600 flex justify-between items-center">
-                        <h3 class="text-lg font-bold">Re-review Accident #${accidentId}</h3>
-                        <button onclick="document.getElementById('reviewModal').remove()" class="text-gray-400 hover:text-white">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                    <div class="p-8 text-center">
-                        <div class="loading-spinner mx-auto"></div>
-                        <p class="mt-4 text-gray-400">Loading accident details for re-review...</p>
+            <div id="${modalId}" class="modal-overlay">
+                <div class="modal-container">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 class="text-lg font-bold text-sky">Loading Incident Details...</h3>
+                            <button onclick="closeModal('${modalId}')" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="modal-body" id="reviewModalContent">
+                            <div class="text-center py-8">
+                                <div class="loading-spinner mx-auto"></div>
+                                <p class="mt-4 text-gray-400">Loading accident details for re-review...</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -571,6 +1806,7 @@ async function reReviewAccident(accidentId, currentStatus) {
                 frame_image,
                 video_clip,
                 camera_id,
+                admin_confirmed_at,
                 cctv:camera_id (
                     location_name,
                     status
@@ -581,124 +1817,89 @@ async function reReviewAccident(accidentId, currentStatus) {
         
         if (error) throw error;
         
-        document.getElementById('reviewModal').remove();
+        modal = document.getElementById(modalId);
+        const content = document.getElementById('reviewModalContent');
         
-        const detectionTime = new Date(accident.detection_time).toLocaleString();
+        const detectionTime = formatTimestamp(accident.detection_time);
+        const confirmedTime = accident.admin_confirmed_at ? formatTimestamp(accident.admin_confirmed_at) : null;
         const locationName = accident.cctv?.location_name ||
             (accident.camera_id ? `Camera ${accident.camera_id}` : 'Unknown Location');
         
-        document.body.insertAdjacentHTML('beforeend', `
-            <div id="reviewModal" class="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
-                <div class="bg-[#1E293B] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-                    <div class="p-4 md:p-6 border-b border-gray-600 flex justify-between items-center">
-                        <div>
-                            <h3 class="text-lg md:text-xl font-bold">Re-review Accident #${accident.accident_id}</h3>
-                            <p class="text-sm text-gray-400">
-                                <i class="fas fa-map-marker-alt mr-1"></i> ${locationName} &bull;
-                                <i class="fas fa-clock mr-1"></i> ${detectionTime}
-                            </p>
-                            <p class="text-xs text-gold mt-1">
-                                <i class="fas fa-exclamation-triangle"></i>
-                                Current Status: ${accident.status === 'Admin_Confirmed' ? 'Dispatched' : 'False Alarm'}
-                            </p>
-                        </div>
-                        <button onclick="document.getElementById('reviewModal').remove()"
-                                class="text-gray-400 hover:text-white text-xl">
-                            <i class="fas fa-times"></i>
-                        </button>
+        content.innerHTML = `
+            <div class="space-y-6">
+                <div>
+                    <h3 class="text-lg md:text-xl font-bold">Re-review Accident #${accident.accident_id}</h3>
+                    <p class="text-sm text-gray-400">
+                        <i class="fas fa-map-marker-alt mr-1"></i> ${locationName}
+                    </p>
+                    <div class="flex flex-wrap gap-2 mt-1">
+                        <span class="timestamp-badge">
+                            <i class="fas fa-clock"></i> Detected: ${formatNotificationTime(accident.detection_time)}
+                        </span>
+                        ${confirmedTime ? `
+                        <span class="timestamp-badge">
+                            <i class="fas fa-check-circle"></i> Previously Confirmed: ${formatNotificationTime(accident.admin_confirmed_at)}
+                        </span>
+                        ` : ''}
                     </div>
-                    
-                    <div class="p-4 md:p-6 overflow-y-auto" style="max-height: calc(90vh - 120px);">
-                        <!-- Warning Banner -->
-                        <div class="mb-6 p-4 bg-gold/20 border border-gold/30 rounded-lg">
-                            <div class="flex items-center gap-3">
-                                <i class="fas fa-undo-alt text-gold text-xl"></i>
-                                <div>
-                                    <p class="font-medium">You are about to change your decision</p>
-                                    <p class="text-xs text-gray-400 mt-1">
-                                        This will send new notifications to tanods based on your updated decision.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                    <p class="text-xs text-gold mt-2">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Current Status: ${accident.status === 'Admin_Confirmed' ? 'Dispatched' : accident.status === 'Verified' ? 'Verified' : 'False Alarm'}
+                    </p>
+                </div>
 
-                        <!-- Media Grid -->
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-                            <div>
-                                <h4 class="font-semibold mb-2 flex items-center gap-2">
-                                    <i class="fas fa-image text-gold"></i> Detection Frame
-                                </h4>
-                                ${accident.frame_image ? `
-                                    <img src="${accident.frame_image}" alt="Accident frame"
-                                         class="w-full rounded-lg border border-gray-600 cursor-pointer hover:opacity-90 transition"
-                                         style="max-height: 200px; object-fit: cover;"
-                                         onclick="window.open('${accident.frame_image}', '_blank')"
-                                         title="Click to enlarge">
-                                ` : `
-                                    <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
-                                        <i class="fas fa-image text-3xl mb-2 text-gray-600"></i>
-                                        <p class="text-sm">No frame image available</p>
-                                    </div>
-                                `}
-                            </div>
-                            <div>
-                                <h4 class="font-semibold mb-2 flex items-center gap-2">
-                                    <i class="fas fa-video text-sky"></i> Video Evidence
-                                </h4>
-                                ${accident.video_clip ? `
-                                    <video src="${accident.video_clip}" controls
-                                           class="w-full rounded-lg border border-gray-600 bg-black"
-                                           style="max-height: 200px;">
-                                        Your browser does not support the video tag.
-                                    </video>
-                                ` : `
-                                    <div class="bg-[#112240] rounded-lg p-6 text-center text-gray-500 border border-gray-600">
-                                        <i class="fas fa-video-slash text-3xl mb-2 text-gray-600"></i>
-                                        <p class="text-sm">No video available</p>
-                                    </div>
-                                `}
-                            </div>
-                        </div>
-
-                        <!-- Detection Details -->
-                        <div class="mb-6 p-4 bg-[#112240] rounded-lg border border-gray-600">
-                            <h4 class="font-semibold mb-3 flex items-center gap-2">
-                                <i class="fas fa-info-circle text-sky"></i> Detection Details
-                            </h4>
-                            <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                <div>
-                                    <p class="text-xs text-gray-400">Camera ID</p>
-                                    <p class="font-medium">${accident.camera_id || 'Not assigned'}</p>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-gray-400">Location</p>
-                                    <p class="font-medium">${locationName}</p>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-gray-400">Camera Status</p>
-                                    <p class="font-medium ${accident.cctv?.status === 'Active' ? 'text-greenlight' : 'text-alert'}">
-                                        ${accident.cctv?.status || 'Unknown'}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Action Buttons -->
-                        <div class="flex flex-col sm:flex-row gap-3 justify-end">
-                            <button onclick="document.getElementById('reviewModal').remove()"
-                                    class="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition">
-                                Cancel
-                            </button>
-                            <button onclick="updateDecision(${accident.accident_id}, ${accident.status === 'Admin_Confirmed' ? 'false' : 'true'}, true)"
-                                    class="bg-gold hover:bg-yellow-500 text-darkblue px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
-                                <i class="fas fa-undo-alt"></i>
-                                Change to ${accident.status === 'Admin_Confirmed' ? 'False Alarm' : 'Dispatch Tanod'}
-                            </button>
+                <!-- Warning Banner -->
+                <div class="p-4 bg-gold/20 border border-gold/30 rounded-lg">
+                    <div class="flex items-center gap-3">
+                        <i class="fas fa-undo-alt text-gold text-xl"></i>
+                        <div>
+                            <p class="font-medium">You are about to change your decision</p>
+                            <p class="text-xs text-gray-400 mt-1">
+                                This will send new notifications to tanods based on your updated decision.
+                            </p>
                         </div>
                     </div>
                 </div>
+
+                    <!-- Media Grid -->
+<div class="grid grid-cols-1 gap-4">
+    <div>
+        <h4 class="font-semibold mb-2 flex items-center gap-2">
+            <i class="fas fa-video text-sky"></i> Video Evidence
+        </h4>
+        ${accident.video_clip ? `
+            <div class="w-full">
+                <video src="${accident.video_clip}" controls
+                       class="w-full rounded-lg border border-gray-600 bg-black"
+                       style="max-height: 300px; width: 100%; object-fit: contain;">
+                    Your browser does not support the video tag.
+                </video>
+                <p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Video clip from time of detection</p>
             </div>
-        `);
+        ` : `
+            <div class="bg-[#112240] rounded-lg p-8 text-center text-gray-500 border border-gray-600">
+                <i class="fas fa-video-slash text-4xl mb-3 text-gray-600"></i>
+                <p class="text-base">No video available</p>
+                <p class="text-sm text-gray-600 mt-2">Video will appear once CCTV is integrated</p>
+            </div>
+        `}
+    </div>
+</div>
+
+                <!-- Action Buttons -->
+                <div class="flex flex-col sm:flex-row gap-3 justify-end">
+                    <button onclick="closeModal('${modalId}')"
+                            class="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition">
+                        Cancel
+                    </button>
+                    <button onclick="updateDecision(${accident.accident_id}, ${accident.status === 'Admin_Confirmed' || accident.status === 'Verified' ? 'false' : 'true'}, true)"
+                            class="bg-gold hover:bg-yellow-500 text-darkblue px-6 py-2 rounded-lg transition flex items-center justify-center gap-2">
+                        <i class="fas fa-undo-alt"></i>
+                        Change to ${accident.status === 'Admin_Confirmed' || accident.status === 'Verified' ? 'False Alarm' : 'Dispatch Tanod'}
+                    </button>
+                </div>
+            </div>
+        `;
         
     } catch (error) {
         console.error('Error in reReviewAccident:', error);
@@ -708,13 +1909,13 @@ async function reReviewAccident(accidentId, currentStatus) {
     }
 }
 
-// Verify Accident
+// Verify Accident (Admin confirms)
 async function verifyAccident(accidentId, isConfirmed, closeModal = false) {
     try {
         const confirmed = await showCustomConfirm(
             isConfirmed ? 'Confirm & Dispatch Tanod' : 'Mark as False Alarm',
             isConfirmed
-                ? 'Are you sure you want to dispatch a tanod? They will respond to the location and verify on-site.'
+                ? 'Are you sure you want to dispatch a tanod? They will respond via the Flutter app.'
                 : 'Are you sure you want to cancel this incident? No tanod will be dispatched.',
             isConfirmed ? 'confirm' : 'cancel'
         );
@@ -725,32 +1926,79 @@ async function verifyAccident(accidentId, isConfirmed, closeModal = false) {
         
         showToast('Processing...', 'info');
         
+        // Get accident details first to get location
+        const { data: accident } = await adminClient
+            .from('accident_detections')
+            .select(`
+                camera_id,
+                cctv!inner (
+                    location_name
+                )
+            `)
+            .eq('accident_id', accidentId)
+            .single();
+        
+        const location = accident?.cctv?.location_name || 'Unknown location';
         const newStatus = isConfirmed ? 'Admin_Confirmed' : 'False_Alarm';
+        const now = new Date().toISOString();
+        
+        // Update accident status with timestamp
+        const updateData = isConfirmed 
+            ? { 
+                status: newStatus,
+                admin_confirmed_at: now
+              }
+            : { status: newStatus };
         
         const { error: updateError } = await adminClient
             .from('accident_detections')
-            .update({ status: newStatus })
+            .update(updateData)
             .eq('accident_id', accidentId);
         
         if (updateError) throw updateError;
         
+        // Get all tanods to notify them via Flutter
         const { data: tanods, error: tanodError } = await adminClient
             .from('users').select('user_id').eq('role', 'tanod');
         
         if (!tanodError && tanods && tanods.length > 0) {
+            // Create alerts for tanods
+            const message = isConfirmed
+                ? `🚨 NEW ALERT: Confirmed accident at ${location}. Please respond.`
+                : `ℹ️ Update: False alarm at ${location}. No response needed.`;
+            
             const alerts = tanods.map(tanod => ({
                 detection_id: accidentId,
                 sent_to: tanod.user_id,
-                message: isConfirmed
-                    ? 'CONFIRMED ACCIDENT - Please respond to location'
-                    : 'INCIDENT CANCELLED - False alarm. Stand down.',
+                message: message,
                 response_status: isConfirmed ? 'Unacknowledged' : 'Resolved',
-                alert_time: new Date().toISOString()
+                alert_time: now
             }));
+            
             await adminClient.from('alerts').insert(alerts);
+            
+            // Also create notification for admin
+            const adminMessage = isConfirmed
+                ? `✅ Tanod dispatched for accident at ${location}`
+                : `❌ False alarm reported at ${location}`;
+            
+            const { data: admins } = await adminClient
+                .from('users').select('user_id').eq('role', 'admin');
+            
+            if (admins && admins.length > 0) {
+                const adminAlerts = admins.map(admin => ({
+                    detection_id: accidentId,
+                    sent_to: admin.user_id,
+                    message: adminMessage,
+                    response_status: 'Unacknowledged',
+                    alert_time: now
+                }));
+                await adminClient.from('alerts').insert(adminAlerts);
+            }
+            
             showToast(isConfirmed
-                ? `Tanod dispatched! ${tanods.length} tanod(s) notified.`
-                : 'False alarm! Tanods notified to stand down.', 'success');
+                ? `✅ Tanod dispatched! ${tanods.length} tanod(s) notified via Flutter.`
+                : `❌ False alarm! Tanods notified.`, 'success');
         }
         
         if (closeModal) {
@@ -762,6 +2010,8 @@ async function verifyAccident(accidentId, isConfirmed, closeModal = false) {
         if (typeof loadDashboardData === 'function') {
             await loadDashboardData();
         }
+        // Reload notifications
+        await loadNotifications();
         
     } catch (error) {
         console.error('Error in verifyAccident:', error);
@@ -777,11 +2027,29 @@ async function updateDecision(accidentId, newIsConfirmed, closeModal = false) {
         
         showToast('Updating decision...', 'info');
         
-        const newStatus = newIsConfirmed ? 'Admin_Confirmed' : 'False_Alarm';
+        // Get accident details for location
+        const { data: accident } = await adminClient
+            .from('accident_detections')
+            .select(`
+                camera_id,
+                cctv!inner (
+                    location_name
+                )
+            `)
+            .eq('accident_id', accidentId)
+            .single();
         
+        const location = accident?.cctv?.location_name || 'Unknown location';
+        const newStatus = newIsConfirmed ? 'Admin_Confirmed' : 'False_Alarm';
+        const now = new Date().toISOString();
+        
+        // Update accident status with new timestamp
         const { error: updateError } = await adminClient
             .from('accident_detections')
-            .update({ status: newStatus })
+            .update({ 
+                status: newStatus,
+                admin_confirmed_at: now 
+            })
             .eq('accident_id', accidentId);
         if (updateError) throw updateError;
         
@@ -789,27 +2057,50 @@ async function updateDecision(accidentId, newIsConfirmed, closeModal = false) {
         
         if (tanods && tanods.length > 0) {
             // Cancel old alerts
+            const cancelMessage = `⚠️ UPDATE: Previous alert for accident at ${location} has been cancelled. New assessment pending.`;
             const cancelAlerts = tanods.map(tanod => ({
                 detection_id: accidentId,
                 sent_to: tanod.user_id,
-                message: 'PREVIOUS DECISION CANCELLED - New assessment in progress',
+                message: cancelMessage,
                 response_status: 'Unacknowledged',
-                alert_time: new Date().toISOString()
+                alert_time: now
             }));
             await adminClient.from('alerts').insert(cancelAlerts);
             
             // Send new decision alerts
+            const message = newIsConfirmed
+                ? `🚨 NEW ALERT: Accident at ${location} has been CONFIRMED. Please respond.`
+                : `ℹ️ Update: Incident at ${location} has been marked as FALSE ALARM. No response needed.`;
+            
             const newAlerts = tanods.map(tanod => ({
                 detection_id: accidentId,
                 sent_to: tanod.user_id,
-                message: newIsConfirmed
-                    ? 'CONFIRMED ACCIDENT - Please respond to location'
-                    : 'INCIDENT CANCELLED - False alarm. Stand down.',
-                response_status: 'Unacknowledged',
-                alert_time: new Date().toISOString()
+                message: message,
+                response_status: newIsConfirmed ? 'Unacknowledged' : 'Resolved',
+                alert_time: now
             }));
             await adminClient.from('alerts').insert(newAlerts);
-            showToast('Decision updated! Tanods notified of change.', 'success');
+            
+            // Also notify admins
+            const { data: admins } = await adminClient
+                .from('users').select('user_id').eq('role', 'admin');
+            
+            if (admins && admins.length > 0) {
+                const adminMessage = newIsConfirmed
+                    ? `🔄 Decision changed: Accident at ${location} confirmed (was false alarm)`
+                    : `🔄 Decision changed: Accident at ${location} cancelled (was confirmed)`;
+                
+                const adminAlerts = admins.map(admin => ({
+                    detection_id: accidentId,
+                    sent_to: admin.user_id,
+                    message: adminMessage,
+                    response_status: 'Unacknowledged',
+                    alert_time: now
+                }));
+                await adminClient.from('alerts').insert(adminAlerts);
+            }
+            
+            showToast('Decision updated! Tanods notified via Flutter.', 'success');
         }
         
         if (closeModal) {
@@ -821,38 +2112,12 @@ async function updateDecision(accidentId, newIsConfirmed, closeModal = false) {
         if (typeof loadDashboardData === 'function') {
             await loadDashboardData();
         }
+        // Reload notifications
+        await loadNotifications();
         
     } catch (error) {
         console.error('Error in updateDecision:', error);
         showToast('Failed to update decision', 'error');
-    }
-}
-
-// Acknowledge Alert
-async function acknowledgeAlert(alertId) {
-    try {
-        const adminClient = initSupabase(true);
-        if (!adminClient) throw new Error("Supabase admin client not initialized");
-        
-        const { error } = await adminClient
-            .from('alerts')
-            .update({ response_status: 'Acknowledged' })
-            .eq('alert_id', alertId)
-            .eq('sent_to', {{ user.user_id }});
-        
-        if (error) throw error;
-        showToast('Alert acknowledged successfully');
-        
-        // Reload notifications and dashboard
-        if (typeof loadNotifications === 'function') {
-            await loadNotifications();
-        }
-        if (typeof loadDashboardData === 'function') {
-            await loadDashboardData();
-        }
-    } catch (error) {
-        console.error('Error in acknowledgeAlert:', error);
-        showToast('Failed to acknowledge alert', 'error');
     }
 }
 
@@ -867,15 +2132,21 @@ async function deleteAlert(alertId) {
         showToast('Alert deleted successfully', 'success');
         
         // Reload notifications and dashboard
-        if (typeof loadNotifications === 'function') {
-            await loadNotifications();
-        }
+        await loadNotifications();
         if (typeof loadDashboardData === 'function') {
             await loadDashboardData();
         }
     } catch (error) {
         console.error('Error deleting alert:', error);
         showToast('Failed to delete alert', 'error');
+    }
+}
+
+// Close modal helper
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.remove();
     }
 }
 
@@ -893,8 +2164,12 @@ const toastContainer = document.getElementById("toastContainer");
 /* HELPER FUNCTIONS */
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');
-    const bgColor = type === 'success' ? 'bg-greenlight/20 text-greenlight' : 'bg-alert/20 text-alert';
-    const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+    const bgColor = type === 'success' ? 'bg-greenlight/20 text-greenlight' : 
+                    type === 'error' ? 'bg-alert/20 text-alert' : 
+                    'bg-gold/20 text-gold';
+    const icon = type === 'success' ? 'fa-check-circle' : 
+                 type === 'error' ? 'fa-exclamation-circle' : 
+                 'fa-info-circle';
     
     toast.className = `${bgColor} px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg text-sm`;
     toast.innerHTML = `<i class="fas ${icon} text-xs"></i> ${message}`;
@@ -911,10 +2186,28 @@ function timeAgo(timestamp) {
     const now = new Date();
     const seconds = Math.floor((now - date) / 1000);
     
-    if (seconds < 60) return "now";
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-    return `${Math.floor(seconds / 86400)}d`;
+    if (seconds < 60) return "just now";
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+function getStatusBadgeClass(status) {
+    switch(status) {
+        case 'Unacknowledged': return 'bg-alert/10 text-alert';
+        case 'Acknowledged': return 'bg-gold/10 text-gold';
+        case 'Resolved': return 'bg-greenlight/10 text-greenlight';
+        default: return 'bg-gray-500/10 text-gray-400';
+    }
+}
+
+function getStatusIcon(status) {
+    switch(status) {
+        case 'Unacknowledged': return 'fa-exclamation-circle';
+        case 'Acknowledged': return 'fa-check-circle';
+        case 'Resolved': return 'fa-check-double';
+        default: return 'fa-bell';
+    }
 }
 
 function updateLastUpdate() {
@@ -970,6 +2263,8 @@ if (markAllReadBtn) {
                 }
             }
             
+            const now = new Date().toISOString();
+            
             const { data: unreadAlerts, error: fetchError } = await client
                 .from("alerts")
                 .select("alert_id")
@@ -987,7 +2282,9 @@ if (markAllReadBtn) {
             
             const { error: updateError } = await client
                 .from("alerts")
-                .update({ response_status: "Acknowledged" })
+                .update({ 
+                    response_status: "Acknowledged"
+                })
                 .in("alert_id", alertIds)
                 .eq("sent_to", alertUserId);
             
@@ -1005,15 +2302,14 @@ if (markAllReadBtn) {
     });
 }
 
-/* LOAD NOTIFICATIONS */
+/* LOAD NOTIFICATIONS - FIXED with correct time sorting */
 async function loadNotifications() {
-    // Don't try to load if no user ID
     if (!USER_ID || USER_ID === 'null') {
         console.log("No user ID available - skipping alerts");
         if (notifLoading) notifLoading.classList.add("hidden");
         if (notifEmpty) {
             notifEmpty.classList.remove("hidden");
-            notifEmpty.innerHTML = '<i class="fas fa-user-slash text-lg mb-1"></i><p class="text-xs">Please log in</p>';
+            notifEmpty.innerHTML = '<i class="fas fa-user-slash text-3xl mb-2"></i><p class="text-sm">Please log in</p>';
         }
         return;
     }
@@ -1028,12 +2324,9 @@ async function loadNotifications() {
 
         console.log("🔵 USER_ID from template:", USER_ID);
         
-        // Check if USER_ID is a UUID (contains dashes) or integer
         const isUuid = typeof USER_ID === 'string' && USER_ID.includes('-');
-        
         let alertUserId = USER_ID;
         
-        // If it's a UUID, we need to get the integer user_id first
         if (isUuid) {
             console.log("🔵 USER_ID is UUID, fetching integer user_id...");
             
@@ -1057,7 +2350,7 @@ async function loadNotifications() {
             console.log("🔵 Found integer user_id:", alertUserId);
         }
 
-        // Now fetch alerts using the correct user_id
+        // Fetch alerts with related data
         const { data, error } = await client
             .from("alerts")
             .select(`
@@ -1068,12 +2361,16 @@ async function loadNotifications() {
                 detection_id,
                 accident_detections:detection_id (
                     status,
-                    accident_id
+                    accident_id,
+                    detection_time,
+                    cctv:camera_id (
+                        location_name
+                    )
                 )
             `)
             .eq("sent_to", alertUserId)
             .order("alert_time", { ascending: false })
-            .limit(10);
+            .limit(20);
 
         if (error) throw error;
 
@@ -1082,90 +2379,163 @@ async function loadNotifications() {
         let unread = 0;
 
         if (data && data.length > 0) {
+            // Group alerts by detection_id to show the LATEST status
+            const groupedAlerts = {};
+            
             data.forEach(alert => {
+                const detectionId = alert.detection_id;
+                if (!groupedAlerts[detectionId] || 
+                    new Date(alert.alert_time) > new Date(groupedAlerts[detectionId].alert_time)) {
+                    groupedAlerts[detectionId] = alert;
+                }
+            });
+            
+            // Convert back to array and sort by DETECTION TIME (not alert time)
+            const uniqueAlerts = Object.values(groupedAlerts).sort((a, b) => {
+                const timeA = a.accident_detections?.detection_time || a.alert_time;
+                const timeB = b.accident_detections?.detection_time || b.alert_time;
+                return new Date(timeB) - new Date(timeA);
+            });
+
+            uniqueAlerts.forEach(alert => {
                 const isUnread = alert.response_status === "Unacknowledged";
                 if (isUnread) unread++;
 
                 const incidentStatus = alert.accident_detections?.status;
                 const accidentId = alert.accident_detections?.accident_id;
+                const location = alert.accident_detections?.cctv?.location_name || 'Unknown location';
+                
+                // Use DETECTION TIME for display, not alert time
+                const displayTime = alert.accident_detections?.detection_time || alert.alert_time;
                 
                 let icon = "fa-bell";
-                let colorClass = "text-gray-400";
-                let bgColor = "";
+                let colorClass = isUnread ? "text-sky" : "text-gray-400";
+                let bgColor = isUnread ? 'bg-sky/5' : '';
+                let displayMessage = alert.message || 'No message';
                 
-                switch(incidentStatus) {
-                    case 'Pending':
-                        icon = "fa-exclamation-triangle";
-                        colorClass = "text-gold";
-                        bgColor = isUnread ? 'bg-yellow-500/10' : '';
-                        break;
-                    case 'Admin_Confirmed':
+                if (incidentStatus === 'Verified') {
+                    icon = "fa-check-circle";
+                    colorClass = "text-greenlight";
+                    displayMessage = `✅ Incident resolved at ${location}. Report submitted.`;
+                } else if (incidentStatus === 'False_Alarm') {
+                    icon = "fa-times-circle";
+                    colorClass = "text-alert";
+                    displayMessage = `❌ False alarm reported at ${location}. No action needed.`;
+                } else if (incidentStatus === 'Admin_Confirmed') {
+                    if (alert.response_status === 'Unacknowledged') {
+                        icon = "fa-bell";
+                        colorClass = "text-alert";
+                        displayMessage = `🚨 ALERT: Confirmed accident at ${location}. Please respond.`;
+                    } else if (alert.response_status === 'Acknowledged') {
                         icon = "fa-check-circle";
-                        colorClass = "text-greenlight";
-                        break;
-                    case 'Verified':
+                        colorClass = "text-gold";
+                        displayMessage = `👤 You are responding to accident at ${location}`;
+                    } else if (alert.response_status === 'Resolved') {
                         icon = "fa-check-double";
                         colorClass = "text-greenlight";
-                        break;
-                    case 'False_Alarm':
-                        icon = "fa-times-circle";
-                        colorClass = "text-gray-500";
-                        break;
+                        displayMessage = `✅ You have completed response at ${location}`;
+                    }
+                } else if (incidentStatus === 'Pending') {
+                    icon = "fa-clock";
+                    colorClass = "text-gold";
+                    displayMessage = `⏳ Pending review: Possible accident at ${location}`;
                 }
 
-                const shortMessage = alert.message && alert.message.length > 35 
-                    ? alert.message.substring(0, 35) + '...' 
-                    : alert.message || 'No message';
+                if (alert.message && alert.message.includes('📝')) {
+                    icon = "fa-file-alt";
+                    colorClass = "text-greenlight";
+                } else if (alert.message && alert.message.includes('⚠️')) {
+                    icon = "fa-exclamation-triangle";
+                    colorClass = "text-gold";
+                } else if (alert.message && alert.message.includes('🔄')) {
+                    icon = "fa-undo-alt";
+                    colorClass = "text-gold";
+                }
+
+                const fullMessage = displayMessage;
 
                 if (notifList) {
                     let actionButton = '';
                     
-                    // Admin actions - REVIEW for pending, RE-REVIEW for decided
-                    if (incidentStatus === 'Pending' && accidentId) {
-                        actionButton = `
-                            <button onclick="reviewAccident(${accidentId})" 
-                                    class="text-[10px] bg-sky hover:bg-sky/80 text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                                Review
-                            </button>
-                        `;
-                    } else if ((incidentStatus === 'Admin_Confirmed' || incidentStatus === 'False_Alarm') && accidentId) {
-                        actionButton = `
-                            <button onclick="reReviewAccident(${accidentId}, '${incidentStatus}')" 
-                                    class="text-[10px] bg-gold hover:bg-yellow-500 text-darkblue px-1.5 py-0.5 rounded flex-shrink-0">
-                                Re-review
-                            </button>
-                        `;
-                    } else if (alert.response_status === 'Unacknowledged' && alert.alert_id) {
-                        actionButton = `
-                            <button onclick="acknowledgeAlert(${alert.alert_id})" 
-                                    class="text-[10px] bg-gray-600 hover:bg-gray-700 text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                                Ok
-                            </button>
-                        `;
+                    if (USER_ROLE === 'admin') {
+                        if (incidentStatus === 'Pending' && accidentId) {
+                            actionButton = `
+                                <button onclick="reviewAccident(${accidentId})" 
+                                        class="mt-2 text-xs bg-sky/10 hover:bg-sky/20 text-sky px-3 py-1 rounded-full transition">
+                                    Review Incident
+                                </button>
+                            `;
+                        } else if (incidentStatus === 'Admin_Confirmed' && accidentId) {
+                            actionButton = `
+                                <button onclick="viewIncident(${accidentId})" 
+                                        class="mt-2 text-xs bg-gold/10 hover:bg-gold/20 text-gold px-3 py-1 rounded-full transition">
+                                    View Status
+                                </button>
+                            `;
+                        } else if ((incidentStatus === 'Verified' || incidentStatus === 'False_Alarm') && accidentId) {
+                            actionButton = `
+                                <button onclick="viewIncident(${accidentId})" 
+                                        class="mt-2 text-xs bg-greenlight/10 hover:bg-greenlight/20 text-greenlight px-3 py-1 rounded-full transition">
+                                    View Report
+                                </button>
+                            `;
+                        }
+                        
+                        if (alert.message && alert.message.includes('report')) {
+                            actionButton = `
+                                <button onclick="viewReportsForIncident(${accidentId})" 
+                                        class="mt-2 text-xs bg-greenlight/10 hover:bg-greenlight/20 text-greenlight px-3 py-1 rounded-full transition">
+                                    View Report
+                                </button>
+                            `;
+                        }
                     }
 
                     notifList.innerHTML += `
-                        <li class="px-3 py-2 hover:bg-gray-800/50 ${bgColor} ${isUnread ? 'border-l-2 border-sky' : ''}">
-                            <div class="flex items-start gap-2">
-                                <i class="fas ${icon} ${colorClass} mt-0.5 text-xs"></i>
-                                <div class="flex-1 min-w-0">
-                                    <p class="text-xs ${isUnread ? 'font-semibold' : ''}">${shortMessage}</p>
-                                    <div class="flex items-center gap-2 mt-0.5 text-[10px] text-gray-500">
-                                        <span>${timeAgo(alert.alert_time)}</span>
-                                        <span>•</span>
-                                        <span class="capitalize">${alert.response_status || 'Unknown'}</span>
+                        <div class="notification-item p-3 ${bgColor}">
+                            <div class="flex gap-3">
+                                <div class="flex-shrink-0">
+                                    <div class="w-8 h-8 rounded-full bg-opacity-20 flex items-center justify-center ${isUnread ? 'bg-sky' : 'bg-gray-600'}">
+                                        <i class="fas ${icon} ${colorClass} text-sm"></i>
                                     </div>
                                 </div>
-                                ${actionButton}
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm notification-message ${isUnread ? 'text-white' : 'text-gray-300'}">
+                                        ${fullMessage}
+                                    </p>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        <span class="notification-time">
+                                            <i class="far fa-clock"></i> ${formatNotificationTime(displayTime)}
+                                        </span>
+                                        <span class="notification-badge ${incidentStatus === 'Verified' ? 'bg-greenlight/10 text-greenlight' : incidentStatus === 'False_Alarm' ? 'bg-alert/10 text-alert' : incidentStatus === 'Admin_Confirmed' ? 'bg-sky/10 text-sky' : 'bg-gold/10 text-gold'}">
+                                            ${incidentStatus === 'Verified' ? 'RESOLVED' : 
+                                              incidentStatus === 'False_Alarm' ? 'FALSE ALARM' : 
+                                              incidentStatus === 'Admin_Confirmed' ? 'DISPATCHED' : 
+                                              incidentStatus === 'Pending' ? 'PENDING' : 
+                                              alert.response_status}
+                                        </span>
+                                        ${location !== 'Unknown location' ? `
+                                        <span class="text-xs text-gray-500">
+                                            <i class="fas fa-map-marker-alt"></i> ${location}
+                                        </span>
+                                        ` : ''}
+                                    </div>
+                                    ${actionButton}
+                                </div>
+                                ${isUnread ? '<div class="w-2 h-2 bg-sky rounded-full mt-2"></div>' : ''}
                             </div>
-                        </li>
+                        </div>
                     `;
                 }
             });
         } else {
             if (notifEmpty) {
                 notifEmpty.classList.remove("hidden");
-                notifEmpty.innerHTML = '<i class="fas fa-bell-slash text-lg mb-1"></i><p class="text-xs">No alerts yet</p>';
+                notifEmpty.innerHTML = `
+                    <i class="fas fa-bell-slash text-3xl mb-2"></i>
+                    <p class="text-sm">No notifications yet</p>
+                    <p class="text-xs mt-1 text-gray-600">When you get alerts, they'll appear here</p>
+                `;
             }
         }
 
@@ -1181,9 +2551,10 @@ async function loadNotifications() {
         console.error("Error loading notifications:", err);
         if (notifList) {
             notifList.innerHTML = `
-                <li class="p-3 text-center text-red-400 text-xs">
-                    <i class="fas fa-exclamation-triangle"></i> Error loading
-                </li>
+                <div class="p-4 text-center text-red-400">
+                    <i class="fas fa-exclamation-triangle text-xl mb-2"></i>
+                    <p class="text-sm">Error loading notifications</p>
+                </div>
             `;
         }
     } finally {
@@ -1191,10 +2562,24 @@ async function loadNotifications() {
     }
 }
 
-/* VIEW REPORT */
-async function viewReport(detectionId) {
-    if (detectionId) {
-        window.location.href = `/reports/?detection=${detectionId}`;
+// Helper function to view reports for an incident
+async function viewReportsForIncident(accidentId) {
+    try {
+        const client = initSupabase(false);
+        const { data: reports } = await client
+            .from('reports')
+            .select('report_id')
+            .eq('detection_id', accidentId)
+            .order('submitted_at', { ascending: false });
+        
+        if (reports && reports.length > 0) {
+            viewFullReport(reports[0].report_id);
+        } else {
+            showToast('No reports found for this incident', 'info');
+        }
+    } catch (error) {
+        console.error('Error finding reports:', error);
+        showToast('Error finding reports', 'error');
     }
 }
 
@@ -1242,7 +2627,7 @@ if (testAlertBtn) {
                 const { data: newCamera } = await client
                     .from("cctv")
                     .insert({
-                        location_name: 'Test Camera',
+                        location_name: 'Test Location',
                         ip_address: '192.168.1.' + Math.floor(Math.random() * 254 + 1),
                         status: 'Active',
                         managed_by: managedById
@@ -1257,12 +2642,14 @@ if (testAlertBtn) {
                 locationName = cameras[0].location_name;
             }
             
+            const now = new Date().toISOString();
+            
             // Create accident
             const { data: accident } = await client
                 .from("accident_detections")
                 .insert({
                     camera_id: cameraId,
-                    detection_time: new Date().toISOString(),
+                    detection_time: now,
                     status: 'Pending'
                 })
                 .select()
@@ -1274,27 +2661,38 @@ if (testAlertBtn) {
                 .select("user_id")
                 .eq("role", "admin");
             
-            // Create alerts
+            // Create alerts for admins
             if (admins && admins.length > 0) {
-                const alerts = admins.map(admin => ({
+                const adminAlerts = admins.map(admin => ({
                     detection_id: accident.accident_id,
                     sent_to: admin.user_id,
-                    message: `Accident detected at ${locationName}`,
-                    response_status: 'Unacknowledged'
+                    message: `🚨 PENDING REVIEW: Possible accident detected at ${locationName}. Admin review needed.`,
+                    response_status: 'Unacknowledged',
+                    alert_time: now
                 }));
                 
-                await client.from("alerts").insert(alerts);
-                showToast(`Alert sent to ${admins.length} admins`, 'success');
-            } else {
-                await client.from("alerts").insert({
-                    detection_id: accident.accident_id,
-                    sent_to: managedById,
-                    message: `Accident detected at ${locationName}`,
-                    response_status: 'Unacknowledged'
-                });
-                showToast('Test alert created', 'success');
+                await client.from("alerts").insert(adminAlerts);
             }
             
+            // Also create alerts for tanods
+            const { data: tanods } = await client
+                .from("users")
+                .select("user_id")
+                .eq("role", "tanod");
+            
+            if (tanods && tanods.length > 0) {
+                const tanodAlerts = tanods.map(tanod => ({
+                    detection_id: accident.accident_id,
+                    sent_to: tanod.user_id,
+                    message: `🚨 NEW ALERT: Possible accident detected at ${locationName}. Awaiting admin confirmation.`,
+                    response_status: 'Unacknowledged',
+                    alert_time: now
+                }));
+                
+                await client.from("alerts").insert(tanodAlerts);
+            }
+            
+            showToast(`✅ Test alert sent! Check notifications.`, 'success');
             await loadNotifications();
             
         } catch (err) {
@@ -1321,10 +2719,38 @@ function setupRealtime() {
                 { 
                     event: "*", 
                     schema: "public", 
-                    table: "alerts"
+                    table: "alerts",
+                    filter: `sent_to=eq.${USER_ID}`
                 },
                 () => {
                     loadNotifications();
+                }
+            )
+            .on("postgres_changes",
+                {
+                    event: "*",
+                    schema: "public",
+                    table: "accident_detections"
+                },
+                () => {
+                    if (typeof loadDashboardData === 'function') {
+                        loadDashboardData(false);
+                    }
+                }
+            )
+            .on("postgres_changes",
+                {
+                    event: "*",
+                    schema: "public",
+                    table: "reports"
+                },
+                () => {
+                    // New report submitted - refresh and show toast
+                    showToast("📝 New report received from Tanod", "info");
+                    loadNotifications();
+                    if (typeof loadDashboardData === 'function') {
+                        loadDashboardData(false);
+                    }
                 }
             )
             .subscribe();
@@ -1343,17 +2769,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Global functions
 window.reviewAccident = reviewAccident;
+window.viewIncident = viewIncident;
 window.reReviewAccident = reReviewAccident;
 window.verifyAccident = verifyAccident;
 window.updateDecision = updateDecision;
-window.acknowledgeAlert = acknowledgeAlert;
 window.deleteAlert = deleteAlert;
-window.viewReport = viewReport;
+window.viewFullReport = viewFullReport;
+window.viewIncidentTimeline = viewIncidentTimeline;
+window.viewReportsForIncident = viewReportsForIncident;
+window.closeModal = closeModal;
 window.showToast = showToast;
 window.showCustomConfirm = showCustomConfirm;
 window.loadNotifications = loadNotifications;
 window.USER_ID = USER_ID;
+window.USER_ROLE = USER_ROLE;
 window.initSupabase = initSupabase;
+window.formatTimestamp = formatTimestamp;
+window.getTimeDifference = getTimeDifference;
+window.timeAgo = timeAgo;
+window.formatNotificationTime = formatNotificationTime;
 
 console.log("BASE TEMPLATE: Script finished loading");
 </script>
