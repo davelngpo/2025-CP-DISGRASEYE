@@ -352,26 +352,118 @@ def login_view(request):
     return render(request, 'login/login.html')
 
 # =============================================================================
-# DYNAMIC RTSP MONITORING FUNCTIONS
+# LIVE DETECTION PAGE FUNCTIONS
 # =============================================================================
 
+# Global AI queue and state for live monitoring
+live_ai_queue = queue.Queue(maxsize=2)
+live_detection_state = {}  # shared between live_ai_worker and generate_frames
+
+def live_ai_worker():
+    """AI worker for live monitoring page — same pattern as camera AI worker"""
+    global is_monitoring
+    print("🤖 Live monitoring AI worker started")
+
+    while is_monitoring:
+        try:
+            frame = live_ai_queue.get(timeout=1.0)
+        except queue.Empty:
+            continue
+
+        try:
+            small_frame = cv2.resize(frame, (320, 240))
+            results = model(small_frame, imgsz=320, conf=0.5, verbose=False)
+
+            crash_detected = False
+            detected_classes = []
+            detected_confidences = []
+            detected_boxes = []
+
+            if results and results[0].boxes is not None:
+                for box in results[0].boxes:
+                    class_id   = int(box.cls[0])
+                    class_name = model.names[class_id]
+                    confidence = float(box.conf[0])
+
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    detected_boxes.append({
+                        'x1':      int(x1 * 2),
+                        'y1':      int(y1 * 2),
+                        'x2':      int(x2 * 2),
+                        'y2':      int(y2 * 2),
+                        'class':   class_name,
+                        'conf':    confidence,
+                        'is_crash': any(k in class_name.lower() for k in ['crash', 'accident'])
+                    })
+
+                    detected_classes.append(class_name)
+                    detected_confidences.append(confidence)
+
+                    if any(k in class_name.lower() for k in ['crash', 'accident']):
+                        crash_detected = True
+
+            latency = live_detection_state.get('last_inference_start', 0)
+            latency_ms = int((time.time() - latency) * 1000) if latency else 0
+
+            live_detection_state.update({
+                'crash_detected':   crash_detected,
+                'classes':          detected_classes,
+                'confidences':      detected_confidences,
+                'boxes':            detected_boxes,
+                'timestamp':        time.time(),
+                'latency_ms':       latency_ms,
+                'frame_count':      live_detection_state.get('frame_count', 0) + 1,
+            })
+
+            # Update global latest_detection_result so /live/status/ still works
+            global latest_detection_result
+            latest_detection_result = {
+                'crash_detected': crash_detected,
+                'crash_classes':  detected_classes,
+                'timestamp':      time.time(),
+                'latency_ms':     latency_ms,
+                'frame_count':    live_detection_state.get('frame_count', 0),
+            }
+
+            # Send Supabase alert with 30s cooldown
+            if crash_detected:
+                last_alert = live_detection_state.get('last_alert_time', 0)
+                if time.time() - last_alert > 30:
+                    live_detection_state['last_alert_time'] = time.time()
+                    alert_thread = threading.Thread(
+                        target=send_crash_alert_to_supabase,
+                        kwargs={'accident_id': None, 'location': f'Live RTSP: {current_rtsp_url}'}
+                    )
+                    alert_thread.daemon = True
+                    alert_thread.start()
+
+        except Exception as e:
+            print(f"❌ Live AI worker error: {e}")
+
+    print("🛑 Live monitoring AI worker stopped")
+
+
 def generate_frames():
-    """Generate frames directly from RTSP stream"""
-    global is_monitoring, latest_detection_result, current_rtsp_url
-    
+    """Generate frames from RTSP — AI runs on separate thread, stream never blocks"""
+    global is_monitoring, current_rtsp_url
+
     if not current_rtsp_url:
         print("❌ No RTSP URL configured")
         return
-    
+
     cap = cv2.VideoCapture(current_rtsp_url)
-    
-    # Low latency settings
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     cap.set(cv2.CAP_PROP_FPS, 15)
-    
-    print(f"🎥 Starting RTSP stream capture: {current_rtsp_url}")
-    frame_count = 0
-    
+
+    # Reset state
+    live_detection_state.clear()
+
+    # Start AI worker thread
+    ai_thread = threading.Thread(target=live_ai_worker, daemon=True)
+    ai_thread.start()
+
+    print(f"🎥 Starting RTSP stream: {current_rtsp_url}")
+
     while is_monitoring:
         try:
             ret, frame = cap.read()
@@ -379,77 +471,103 @@ def generate_frames():
                 print("❌ Failed to read frame from RTSP")
                 time.sleep(1)
                 continue
-            
-            # Resize for faster processing
+
             frame = cv2.resize(frame, (640, 480))
-            
-            # Run YOLO detection
-            start_time = time.time()
-            results = model(frame, imgsz=320, conf=0.5, verbose=False)
-            
-            # Check for crashes
-            crash_detected = False
-            crash_classes = []
-            
-            for result in results:
-                if result.boxes is not None:
-                    for box in result.boxes:
-                        class_id = int(box.cls[0])
-                        class_name = model.names[class_id]
-                        confidence = float(box.conf[0])
-                        
-                        if any(keyword in class_name.lower() for keyword in ['crash', 'accident']):
-                            crash_detected = True
-                            crash_classes.append(class_name)
-                            print(f"🚨 Crash detected: {class_name} ({confidence:.2f})")
-            
-            # Annotate frame
-            annotated_frame = results[0].plot()
-            
-            # Add status text
-            status_text = "🚨 CRASH DETECTED!" if crash_detected else "✅ Monitoring"
-            color = (0, 0, 255) if crash_detected else (0, 255, 0)
-            cv2.putText(annotated_frame, status_text, (10, 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-            
-            # Add latency info
-            latency = int((time.time() - start_time) * 1000)
-            cv2.putText(annotated_frame, f"Latency: {latency}ms", (10, 60),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            
-            # Add timestamp
-            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            cv2.putText(annotated_frame, timestamp, (10, annotated_frame.shape[0] - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            
-            # Update detection result
-            latest_detection_result = {
-                'crash_detected': crash_detected,
-                'crash_classes': crash_classes,
-                'timestamp': time.time(),
-                'latency_ms': latency,
-                'frame_count': frame_count
-            }
-            
-            # Encode frame
-            ret, buffer = cv2.imencode('.jpg', annotated_frame, [
-                cv2.IMWRITE_JPEG_QUALITY, 80
-            ])
-            
+            display_frame = frame.copy()
+
+            # Send to AI worker (non-blocking)
+            live_detection_state['last_inference_start'] = time.time()
+            try:
+                live_ai_queue.put_nowait(frame.copy())
+            except queue.Full:
+                pass
+
+            # Draw last known boxes
+            detected_boxes  = live_detection_state.get('boxes', [])
+            crash_detected  = live_detection_state.get('crash_detected', False)
+            det_classes     = live_detection_state.get('classes', [])
+            det_confidences = live_detection_state.get('confidences', [])
+            latency_ms      = live_detection_state.get('latency_ms', 0)
+            frame_count     = live_detection_state.get('frame_count', 0)
+            last_ts         = live_detection_state.get('timestamp', 0)
+            last_alert      = live_detection_state.get('last_alert_time', 0)
+
+            # ── Bounding boxes ────────────────────────────────────────────
+            for det in detected_boxes:
+                x1, y1, x2, y2 = det['x1'], det['y1'], det['x2'], det['y2']
+                is_crash = det['is_crash']
+                label    = f"{det['class']} {det['conf']:.0%}"
+                color    = (0, 0, 255) if is_crash else (0, 255, 0)
+
+                label_bg_y = max(y1 - 22, 0)
+                cv2.rectangle(display_frame, (x1, label_bg_y),
+                             (x1 + len(label) * 9, y1), color, -1)
+                cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(display_frame, label, (x1 + 3, y1 - 6),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+                if is_crash:
+                    cv2.rectangle(display_frame, (0, 0),
+                                 (display_frame.shape[1]-1, display_frame.shape[0]-1),
+                                 (0, 0, 255), 4)
+
+            # ── Debug panel ───────────────────────────────────────────────
+            overlay = display_frame.copy()
+            cv2.rectangle(overlay, (0, 0), (320, 160), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.5, display_frame, 0.5, 0, display_frame)
+
+            if crash_detected:
+                cv2.putText(display_frame, "!! CRASH DETECTED !!", (10, 25),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
+            else:
+                cv2.putText(display_frame, "AI ACTIVE - Monitoring", (10, 25),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1)
+
+            if det_classes:
+                classes_str = ', '.join(
+                    f"{c}({conf:.0%})" for c, conf in zip(det_classes, det_confidences)
+                )
+                cv2.putText(display_frame, f"Detected: {classes_str}", (10, 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)
+            else:
+                cv2.putText(display_frame, "Detected: nothing", (10, 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)
+
+            if last_ts:
+                age_ms = int((time.time() - last_ts) * 1000)
+                cv2.putText(display_frame, f"Last inference: {age_ms}ms ago", (10, 72),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+            else:
+                cv2.putText(display_frame, "Last inference: waiting...", (10, 72),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+
+            cv2.putText(display_frame, f"Frames analyzed: {frame_count}", (10, 94),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+
+            if last_alert:
+                cooldown = max(0, 30 - int(time.time() - last_alert))
+                cd_color = (0, 165, 255) if cooldown > 0 else (0, 255, 0)
+                cv2.putText(display_frame, f"Alert cooldown: {cooldown}s", (10, 116),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, cd_color, 1)
+            else:
+                cv2.putText(display_frame, "Alert cooldown: ready", (10, 116),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
+
+            ts = time.strftime("%H:%M:%S")
+            cv2.putText(display_frame, f"Time: {ts}", (10, 138),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
+
+            # Encode and yield immediately
+            ret, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ret:
-                frame_bytes = buffer.tobytes()
                 yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            
-            frame_count += 1
-            if frame_count % 30 == 0:
-                print(f"📊 Frames processed: {frame_count}, Latency: {latency}ms")
-            
+                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+
         except Exception as e:
             print(f"❌ Frame processing error: {e}")
             time.sleep(0.1)
             continue
-    
+
     cap.release()
     print("🛑 RTSP stream capture stopped")
 
@@ -1102,19 +1220,160 @@ def get_valid_filename(name):
     return s
 
 # =============================================================================
-# CAMERA STREAM FUNCTIONS
+# CCTV MONITORING FUNCTIONS
 # =============================================================================
 
 active_camera_streams = defaultdict(dict)
 stream_lock = threading.Lock()
+camera_ai_queues = {}
+camera_latest_frame = {}
+
+def send_cctv_crash_alert(cam_id):
+    """Send crash alert to Supabase — runs in background thread"""
+    try:
+        from supabase import create_client
+        admin_client = create_client(
+            settings.SUPABASE_URL,
+            settings.SUPABASE_SERVICE_ROLE_KEY
+        )
+
+        # 1. Create accident detection record
+        accident_response = admin_client\
+            .table('accident_detections')\
+            .insert({
+                'camera_id': int(cam_id),
+                'detection_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                'status': 'Pending'
+            }).execute()
+
+        if not accident_response.data:
+            print(f"❌ Failed to create accident record for camera {cam_id}")
+            return
+
+        new_accident_id = accident_response.data[0]['accident_id']
+        cam_name = active_camera_streams.get(cam_id, {}).get('camera_name', f'Camera {cam_id}')
+
+        # 2. Get all admins
+        admins = admin_client\
+            .table('users')\
+            .select('user_id')\
+            .eq('role', 'admin')\
+            .execute()
+
+        # 3. Send alert to each admin
+        if admins.data:
+            alerts = [{
+                'detection_id': new_accident_id,
+                'sent_to': admin['user_id'],
+                'message': f'🚨 Crash detected on {cam_name}',
+                'response_status': 'Unacknowledged',
+                'alert_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            } for admin in admins.data]
+
+            admin_client.table('alerts').insert(alerts).execute()
+            print(f"✅ Alert sent for camera {cam_id} to {len(admins.data)} admin(s)")
+        else:
+            print(f"⚠️ No admins found to notify for camera {cam_id}")
+
+    except Exception as e:
+        print(f"❌ Failed to send crash alert: {e}")
+
+
+def ai_worker(camera_id):
+    """Runs YOLO in a separate thread — never blocks the stream"""
+    print(f"🤖 AI worker started for camera {camera_id}")
+
+    while active_camera_streams.get(camera_id, {}).get('active', False):
+
+        # If AI was toggled off, just idle
+        if not active_camera_streams.get(camera_id, {}).get('ai_enabled', False):
+            time.sleep(0.1)
+            continue
+
+        # Wait for a frame from the stream loop
+        try:
+            frame = camera_ai_queues[camera_id].get(timeout=1.0)
+        except queue.Empty:
+            continue
+
+        try:
+            small_frame = cv2.resize(frame, (320, 240))
+            results = model(small_frame, imgsz=320, conf=0.5, verbose=False)
+
+            crash_detected = False
+            detected_classes = []
+            detected_confidences = []
+            detected_boxes = []  # stores scaled box coordinates for drawing
+
+            if results and results[0].boxes is not None:
+                for box in results[0].boxes:
+                    class_id   = int(box.cls[0])
+                    class_name = model.names[class_id]
+                    confidence = float(box.conf[0])
+
+                    # Scale coords from 320x240 back up to 640x480
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    detected_boxes.append({
+                        'x1':      int(x1 * 2),
+                        'y1':      int(y1 * 2),
+                        'x2':      int(x2 * 2),
+                        'y2':      int(y2 * 2),
+                        'class':   class_name,
+                        'conf':    confidence,
+                        'is_crash': any(k in class_name.lower() for k in ['crash', 'accident'])
+                    })
+
+                    detected_classes.append(class_name)
+                    detected_confidences.append(confidence)
+
+                    if any(k in class_name.lower() for k in ['crash', 'accident']):
+                        crash_detected = True
+
+            # Cache result + boxes + debug info
+            with stream_lock:
+                if camera_id in active_camera_streams:
+                    active_camera_streams[camera_id]['last_detection'] = {
+                        'crash_detected': crash_detected,
+                        'timestamp':      time.time(),
+                        'classes':        detected_classes,
+                        'confidences':    detected_confidences,
+                        'boxes':          detected_boxes,
+                    }
+                    prev = active_camera_streams[camera_id].get('frames_analyzed', 0)
+                    active_camera_streams[camera_id]['frames_analyzed'] = prev + 1
+
+            # Send Supabase alert with 30s cooldown
+            if crash_detected:
+                last_alert = active_camera_streams.get(camera_id, {}).get('last_alert_time', 0)
+                if time.time() - last_alert > 30:
+                    with stream_lock:
+                        if camera_id in active_camera_streams:
+                            active_camera_streams[camera_id]['last_alert_time'] = time.time()
+
+                    alert_thread = threading.Thread(
+                        target=send_cctv_crash_alert, args=(camera_id,)
+                    )
+                    alert_thread.daemon = True
+                    alert_thread.start()
+
+        except Exception as e:
+            print(f"❌ AI worker error for camera {camera_id}: {e}")
+
 
 def generate_camera_frames(camera_id, rtsp_url):
-    """Generate frames for a specific camera stream"""
+    """Generate frames for a specific camera stream — AI runs on separate thread"""
     cap = cv2.VideoCapture(rtsp_url)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    
+
     print(f"📹 Camera {camera_id} - Stream started, AI is OFF by default")
-    
+
+    # Set up the AI queue and start the AI worker thread for this camera
+    camera_ai_queues[camera_id] = queue.Queue(maxsize=2)
+    camera_latest_frame[camera_id] = None
+
+    ai_thread = threading.Thread(target=ai_worker, args=(camera_id,), daemon=True)
+    ai_thread.start()
+
     while active_camera_streams.get(camera_id, {}).get('active', False):
         try:
             ret, frame = cap.read()
@@ -1122,135 +1381,131 @@ def generate_camera_frames(camera_id, rtsp_url):
                 print(f"❌ Camera {camera_id}: Failed to read frame")
                 time.sleep(1)
                 continue
-            
+
             # Resize for performance
             frame = cv2.resize(frame, (640, 480))
             display_frame = frame.copy()
-            
-            # Check if AI is enabled for this camera
+
+            # Check if AI is enabled
             ai_enabled = active_camera_streams.get(camera_id, {}).get('ai_enabled', False)
-            
-            # ONLY run AI if explicitly enabled
+
             if ai_enabled:
-                # Run YOLO detection on a smaller frame for speed
-                small_frame = cv2.resize(frame, (320, 240))
-                results = model(small_frame, imgsz=320, conf=0.5, verbose=False)
-                
-                # Check for crashes
-                crash_detected = False
-                if results and results[0].boxes is not None:
-                    for box in results[0].boxes:
-                        class_id = int(box.cls[0])
-                        class_name = model.names[class_id]
-                        if any(keyword in class_name.lower() for keyword in ['crash', 'accident']):
-                            crash_detected = True
-                            break
-                    
-                    # Scale boxes back to original frame size
-                    if crash_detected:
-                        scale_x = frame.shape[1] / 320
-                        scale_y = frame.shape[0] / 240
-                        
-                        for box in results[0].boxes:
-                            x1, y1, x2, y2 = box.xyxy[0].tolist()
-                            x1, x2 = int(x1 * scale_x), int(x2 * scale_x)
-                            y1, y2 = int(y1 * scale_y), int(y2 * scale_y)
-                            
-                            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                            cv2.putText(display_frame, "CRASH", (x1, y1-10),
-                                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-                
-                # Update detection status
-                with stream_lock:
-                    if camera_id in active_camera_streams:
-                        active_camera_streams[camera_id]['last_detection'] = {
-                            'crash_detected': crash_detected,
-                            'timestamp': time.time()
-                        }
-                
-                # ✅ SEND SUPABASE ALERT IF CRASH DETECTED (with 30s cooldown)
+                # Send frame to AI worker (non-blocking — drop if worker is busy)
+                try:
+                    camera_ai_queues[camera_id].put_nowait(frame.copy())
+                except queue.Full:
+                    pass
+
+                # Get last detection result
+                last_detection   = active_camera_streams.get(camera_id, {}).get('last_detection') or {}
+                crash_detected   = last_detection.get('crash_detected', False)
+                last_det_time    = last_detection.get('timestamp', 0)
+                det_classes      = last_detection.get('classes', [])
+                det_confidences  = last_detection.get('confidences', [])
+                detected_boxes   = last_detection.get('boxes', [])
+                frames_analyzed  = active_camera_streams.get(camera_id, {}).get('frames_analyzed', 0)
+                last_alert       = active_camera_streams.get(camera_id, {}).get('last_alert_time', 0)
+
+                # ── Draw bounding boxes ────────────────────────────────────
+                for det in detected_boxes:
+                    x1, y1, x2, y2 = det['x1'], det['y1'], det['x2'], det['y2']
+                    is_crash = det['is_crash']
+                    label    = f"{det['class']} {det['conf']:.0%}"
+                    color    = (0, 0, 255) if is_crash else (0, 255, 0)
+
+                    # Label background
+                    label_bg_y = max(y1 - 22, 0)
+                    cv2.rectangle(display_frame,
+                                  (x1, label_bg_y),
+                                  (x1 + len(label) * 9, y1),
+                                  color, -1)
+
+                    # Bounding box
+                    cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+
+                    # Label text
+                    cv2.putText(display_frame, label, (x1 + 3, y1 - 6),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+                    # Red border around entire frame when crash
+                    if is_crash:
+                        cv2.rectangle(display_frame, (0, 0),
+                                     (display_frame.shape[1]-1, display_frame.shape[0]-1),
+                                     (0, 0, 255), 4)
+
+                # ── Debug panel background ─────────────────────────────────
+                overlay = display_frame.copy()
+                cv2.rectangle(overlay, (0, 0), (320, 160), (0, 0, 0), -1)
+                cv2.addWeighted(overlay, 0.5, display_frame, 0.5, 0, display_frame)
+
+                # Line 1 — AI status
                 if crash_detected:
-                    last_alert = active_camera_streams.get(camera_id, {}).get('last_alert_time', 0)
-                    
-                    if time.time() - last_alert > 30:
-                        # Update cooldown immediately to prevent duplicate alerts
-                        with stream_lock:
-                            if camera_id in active_camera_streams:
-                                active_camera_streams[camera_id]['last_alert_time'] = time.time()
-                        
-                        # Run in background so it doesn't block the video stream
-                        def send_cctv_crash_alert(cam_id):
-                            try:
-                                from supabase import create_client
-                                admin_client = create_client(
-                                    settings.SUPABASE_URL,
-                                    settings.SUPABASE_SERVICE_ROLE_KEY
-                                )
-                                
-                                # 1. Create accident detection record
-                                accident_response = admin_client\
-                                    .table('accident_detections')\
-                                    .insert({
-                                        'camera_id': int(cam_id),
-                                        'detection_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-                                        'status': 'Pending'
-                                    }).execute()
-                                
-                                if not accident_response.data:
-                                    print(f"❌ Failed to create accident record for camera {cam_id}")
-                                    return
-                                
-                                new_accident_id = accident_response.data[0]['accident_id']
-                                cam_name = active_camera_streams.get(cam_id, {}).get('camera_name', f'Camera {cam_id}')
-                                
-                                # 2. Get all admins
-                                admins = admin_client\
-                                    .table('users')\
-                                    .select('user_id')\
-                                    .eq('role', 'admin')\
-                                    .execute()
-                                
-                                # 3. Send alert to each admin
-                                if admins.data:
-                                    alerts = [{
-                                        'detection_id': new_accident_id,
-                                        'sent_to': admin['user_id'],
-                                        'message': f'🚨 Crash detected on {cam_name}',
-                                        'response_status': 'Unacknowledged',
-                                        'alert_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-                                    } for admin in admins.data]
-                                    
-                                    admin_client.table('alerts').insert(alerts).execute()
-                                    print(f"✅ Alert sent for camera {cam_id} to {len(admins.data)} admin(s)")
-                                    
-                            except Exception as e:
-                                print(f"❌ Failed to send crash alert: {e}")
-                        
-                        alert_thread = threading.Thread(target=send_cctv_crash_alert, args=(camera_id,))
-                        alert_thread.daemon = True
-                        alert_thread.start()
-                
-                # Add AI status text
-                status_text = "CRASH DETECTED!" if crash_detected else "AI ACTIVE"
-                status_color = (0, 0, 255) if crash_detected else (0, 255, 0)
-                cv2.putText(display_frame, status_text, (10, 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+                    cv2.putText(display_frame, "!! CRASH DETECTED !!", (10, 25),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
+                else:
+                    cv2.putText(display_frame, "AI ACTIVE - Monitoring", (10, 25),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1)
+
+                # Line 2 — what classes YOLO sees
+                if det_classes:
+                    classes_str = ', '.join(
+                        f"{c}({conf:.0%})" for c, conf in zip(det_classes, det_confidences)
+                    )
+                    det_label = f"Detected: {classes_str}"
+                else:
+                    det_label = "Detected: nothing"
+                cv2.putText(display_frame, det_label, (10, 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)
+
+                # Line 3 — how long ago AI last ran
+                if last_det_time:
+                    age_ms = int((time.time() - last_det_time) * 1000)
+                    cv2.putText(display_frame, f"Last inference: {age_ms}ms ago", (10, 72),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+                else:
+                    cv2.putText(display_frame, "Last inference: waiting...", (10, 72),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+
+                # Line 4 — total frames analyzed
+                cv2.putText(display_frame, f"Frames analyzed: {frames_analyzed}", (10, 94),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+
+                # Line 5 — alert cooldown
+                if last_alert:
+                    cooldown_remaining = max(0, 30 - int(time.time() - last_alert))
+                    cooldown_color = (0, 165, 255) if cooldown_remaining > 0 else (0, 255, 0)
+                    cv2.putText(display_frame, f"Alert cooldown: {cooldown_remaining}s", (10, 116),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.45, cooldown_color, 1)
+                else:
+                    cv2.putText(display_frame, "Alert cooldown: ready", (10, 116),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
+
+                # Line 6 — timestamp
+                ts = time.strftime("%H:%M:%S")
+                cv2.putText(display_frame, f"Time: {ts}", (10, 138),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
+
             else:
                 cv2.putText(display_frame, "AI OFF", (10, 30),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128, 128, 128), 1)
-            
-            # Encode frame to JPEG
+
+            # Encode frame to JPEG and yield immediately — never waits for AI
             ret, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ret:
                 frame_bytes = buffer.tobytes()
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            
+
         except Exception as e:
             print(f"❌ Camera {camera_id} stream error: {e}")
             time.sleep(1)
-    
+
+    # Cleanup
     cap.release()
+    if camera_id in camera_ai_queues:
+        del camera_ai_queues[camera_id]
+    if camera_id in camera_latest_frame:
+        del camera_latest_frame[camera_id]
     print(f"🛑 Camera {camera_id} stream stopped")
 
 def camera_stream(request, camera_id):
@@ -1325,6 +1580,12 @@ def stop_camera_stream(request):
                     active_camera_streams[camera_id]['active'] = False
                     del active_camera_streams[camera_id]
                     
+                                # Clean up AI resources for this camera
+                if camera_id in camera_ai_queues:
+                    del camera_ai_queues[camera_id]
+                if camera_id in camera_latest_frame:
+                    del camera_latest_frame[camera_id]
+                    
                     return JsonResponse({
                         'status': 'success', 
                         'message': f'Stream stopped for camera {camera_id}'
@@ -1380,7 +1641,6 @@ def reports(request):
         'SUPABASE_ANON_KEY': settings.SUPABASE_ANON_KEY,
     })
 
-# At the top of views.py, add this helper function
 def send_crash_alert_to_supabase(accident_id, camera_id=None, location="Video Upload"):
     """Send crash alert to all admins via Supabase"""
     try:
