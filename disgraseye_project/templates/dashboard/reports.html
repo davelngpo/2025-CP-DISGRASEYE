@@ -1,13 +1,13 @@
 {% extends 'dashboard/base.html' %}
 
-{% block title %}Crash Reports | DisgrasEye{% endblock %}
+{% block title %}Reports & Analytics | DisgrasEye{% endblock %}
 
 {% block extra_scripts %}
 <script>
 let charts = {};
 let reportData = {};
 let currentDateFilter = 'today'; // today, week, month, custom
-let currentFrequencyFilter = 'daily'; // daily, weekly, monthly
+let currentView = 'incidents'; // incidents, reports, analytics
 
 // Function to get Supabase client from global scope
 function getSupabaseClient() {
@@ -15,7 +15,6 @@ function getSupabaseClient() {
         return window._supabase;
     }
     
-    // Use your Supabase credentials
     const supabaseUrl = "{{ SUPABASE_URL|default:'https://ivigoibymrcvaftgayqv.supabase.co' }}";
     const supabaseAnonKey = "{{ SUPABASE_ANON_KEY|default:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aWdvaWJ5bXJjdmFmdGdheXF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MDI2MDgsImV4cCI6MjA3OTQ3ODYwOH0.c3MoFVyNGXwZ3zqtgWz62Du0WfA7pranyAXDwRpy5sw' }}";
     
@@ -25,9 +24,35 @@ function getSupabaseClient() {
 // Initialize everything when page loads
 document.addEventListener('DOMContentLoaded', function() {
     initializeDateFilter();
-    initializeFrequencyFilter();
+    initializeViewTabs();
     loadReportData();
 });
+
+// Set up view tabs
+function initializeViewTabs() {
+    document.querySelectorAll('.view-tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            currentView = this.dataset.view;
+            
+            // Update button active states
+            document.querySelectorAll('.view-tab-btn').forEach(b => {
+                b.classList.remove('bg-sky', 'text-white');
+                b.classList.add('bg-gray-700', 'text-gray-300');
+            });
+            this.classList.remove('bg-gray-700', 'text-gray-300');
+            this.classList.add('bg-sky', 'text-white');
+            
+            // Update view sections visibility
+            document.querySelectorAll('.view-section').forEach(section => {
+                section.classList.add('hidden');
+            });
+            document.getElementById(`${currentView}View`).classList.remove('hidden');
+            
+            // Reload data for new view
+            loadReportData();
+        });
+    });
+}
 
 // Set up date filter button click handlers
 function initializeDateFilter() {
@@ -57,122 +82,6 @@ function initializeDateFilter() {
     });
 }
 
-// Set up frequency filter button click handlers
-function initializeFrequencyFilter() {
-    document.querySelectorAll('.frequency-filter-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            currentFrequencyFilter = this.dataset.frequency;
-            
-            // Update button active states
-            document.querySelectorAll('.frequency-filter-btn').forEach(b => {
-                b.classList.remove('bg-sky', 'text-white');
-                b.classList.add('bg-gray-700', 'text-gray-300');
-            });
-            this.classList.remove('bg-gray-700', 'text-gray-300');
-            this.classList.add('bg-sky', 'text-white');
-            
-            // Reload data with new frequency filter
-            loadReportData();
-        });
-    });
-}
-
-// Main function to load crash report data from Supabase
-async function loadReportData() {
-    try {
-        const supabase = getSupabaseClient();
-        if (!supabase) {
-            console.error('Supabase client not available');
-            initializeChartsWithDemoData();
-            return;
-        }
-
-        // Build date range filter based on current selection
-        const dateFilter = buildDateFilter();
-        
-        console.log('Loading crash data from:', dateFilter.start, 'to', dateFilter.end);
-        
-        // Load crash data from accident_detections table - THIS IS WHERE WE GET CRASH DATA
-        const { data: crashData, error: crashError } = await supabase
-            .from('accident_detections')  // Your crash detection table
-            .select(`
-                accident_id,
-                detection_time,
-                camera_id,
-                status,
-                confidence,
-                description
-            `)
-            .gte('detection_time', dateFilter.start)  // Filter by crash detection time
-            .lte('detection_time', dateFilter.end)
-            .order('detection_time', { ascending: false });
-
-        if (crashError) {
-            console.error('Error loading crash data:', crashError);
-            
-            // Try alerts table as fallback if accident_detections doesn't exist
-            const { data: alertsData } = await supabase
-                .from('alerts')
-                .select(`
-                    alert_id,
-                    alert_time,
-                    detection_id,
-                    accident_detections: detection_id (
-                        detection_time,
-                        camera_id,
-                        status
-                    )
-                `)
-                .gte('alert_time', dateFilter.start)
-                .lte('alert_time', dateFilter.end)
-                .order('alert_time', { ascending: false });
-            
-            if (alertsData && alertsData.length > 0) {
-                console.log('Using alerts data as crash proxy');
-                processCrashDataFromAlerts(alertsData || []);
-                initializeCharts();
-                updateRecentCrashes(alertsData || []);
-                return;
-            }
-            
-            initializeChartsWithDemoData();
-            return;
-        }
-
-        console.log(`Loaded ${crashData.length} crash detections`);
-
-        // Process the crash data for charts and display
-        processReportData(crashData || []);
-        initializeCharts();
-        updateRecentCrashes(crashData || []);
-
-    } catch (error) {
-        console.error('Error loading report data:', error);
-        initializeChartsWithDemoData();
-    }
-}
-
-// Process alerts data as proxy for crash data
-function processCrashDataFromAlerts(alerts) {
-    const crashData = [];
-    
-    alerts.forEach(alert => {
-        const accident = alert.accident_detections || {};
-        if (accident && accident.detection_time) {
-            crashData.push({
-                accident_id: alert.alert_id, // Use alert ID as proxy
-                detection_time: accident.detection_time || alert.alert_time,
-                camera_id: accident.camera_id,
-                status: accident.status || 'Unknown',
-                confidence: null,
-                description: null
-            });
-        }
-    });
-    
-    processReportData(crashData);
-}
-
 // Build date range filter based on current selection
 function buildDateFilter() {
     const now = new Date();
@@ -185,10 +94,9 @@ function buildDateFilter() {
             break;
         case 'week':
             startDate = new Date(now);
-            startDate.setDate(now.getDate() - now.getDay());
+            startDate.setDate(now.getDate() - 7);
             startDate.setHours(0, 0, 0, 0);
-            endDate = new Date(startDate);
-            endDate.setDate(startDate.getDate() + 6);
+            endDate = new Date();
             endDate.setHours(23, 59, 59, 999);
             break;
         case 'month':
@@ -218,230 +126,588 @@ function buildDateFilter() {
     };
 }
 
-// Process crash data into chart-friendly format
-function processReportData(crashes) {
-    console.log('Processing', crashes.length, 'crashes for reports');
+// Main function to load report data
+async function loadReportData() {
+    try {
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+            console.error('Supabase client not available');
+            showNoDataMessage();
+            return;
+        }
+
+        const dateFilter = buildDateFilter();
+        
+        // Load data based on current view
+        if (currentView === 'incidents') {
+            await loadIncidentsView(supabase, dateFilter);
+        } else if (currentView === 'reports') {
+            await loadReportsView(supabase, dateFilter);
+        } else if (currentView === 'analytics') {
+            await loadAnalyticsView(supabase, dateFilter);
+        } else if (currentView === 'locations') {
+            await loadLocationsView(supabase, dateFilter);
+        } else if (currentView === 'topTanods') {
+            await loadTopTanodsView(supabase, dateFilter);
+        }
+
+    } catch (error) {
+        console.error('Error loading report data:', error);
+        showNoDataMessage();
+    }
+}
+
+// Load Incidents View (from accident_detections)
+async function loadIncidentsView(supabase, dateFilter) {
+    // Load incidents with camera info
+    const { data: incidents, error } = await supabase
+        .from('accident_detections')
+        .select(`
+            accident_id,
+            detection_time,
+            status,
+            camera_id,
+            admin_confirmed_at,
+            cctv:camera_id (
+                location_name,
+                status
+            )
+        `)
+        .gte('detection_time', dateFilter.start)
+        .lte('detection_time', dateFilter.end)
+        .order('detection_time', { ascending: false });
+
+    if (error) throw error;
+
+    // Update stats
+    document.getElementById('totalIncidents').textContent = incidents.length;
+    document.getElementById('pendingIncidents').textContent = incidents.filter(i => i.status === 'Pending').length;
+    document.getElementById('dispatchedIncidents').textContent = incidents.filter(i => i.status === 'Admin_Confirmed').length;
+    document.getElementById('verifiedIncidents').textContent = incidents.filter(i => i.status === 'Verified').length;
+    document.getElementById('falseAlarmIncidents').textContent = incidents.filter(i => i.status === 'False_Alarm').length;
+
+    // Calculate resolution rate
+    const resolvedCount = incidents.filter(i => i.status === 'Verified' || i.status === 'False_Alarm').length;
+    const resolutionRate = incidents.length > 0 ? Math.round((resolvedCount / incidents.length) * 100) : 0;
+    document.getElementById('resolutionRate').textContent = resolutionRate + '%';
+    document.getElementById('resolutionBar').style.width = resolutionRate + '%';
+
+    // Render incidents table
+    renderIncidentsTable(incidents);
+
+    // Create charts
+    createIncidentCharts(incidents);
+}
+
+// Load Reports View (from reports table with tanod info)
+async function loadReportsView(supabase, dateFilter) {
+    // Load reports with tanod and incident info
+    const { data: reports, error } = await supabase
+        .from('reports')
+        .select(`
+            report_id,
+            detection_id,
+            remarks,
+            photo_url,
+            submitted_at,
+            generated_by,
+            users!generated_by (
+                first_name,
+                last_name,
+                user_id
+            ),
+            accident_detections!detection_id (
+                accident_id,
+                status,
+                detection_time,
+                camera_id,
+                cctv:camera_id (
+                    location_name
+                )
+            )
+        `)
+        .gte('submitted_at', dateFilter.start)
+        .lte('submitted_at', dateFilter.end)
+        .order('submitted_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Update stats
+    document.getElementById('totalReports').textContent = reports.length;
+    document.getElementById('verifiedReports').textContent = reports.filter(r => r.accident_detections?.status === 'Verified').length;
+    document.getElementById('falseAlarmReports').textContent = reports.filter(r => r.accident_detections?.status === 'False_Alarm').length;
+    document.getElementById('uniqueTanods').textContent = new Set(reports.map(r => r.generated_by)).size;
+
+    // Render reports table
+    renderReportsTable(reports);
+}
+
+// Load Analytics View (response metrics)
+async function loadAnalyticsView(supabase, dateFilter) {
+    // Load alerts for response time analysis
+    const { data: alerts, error } = await supabase
+        .from('alerts')
+        .select(`
+            alert_id,
+            alert_time,
+            response_status,
+            acknowledged_at,
+            resolved_at,
+            detection_id,
+            accident_detections!detection_id (
+                accident_id,
+                status,
+                detection_time,
+                admin_confirmed_at,
+                cctv:camera_id (
+                    location_name
+                )
+            )
+        `)
+        .gte('alert_time', dateFilter.start)
+        .lte('alert_time', dateFilter.end);
+
+    if (error) throw error;
+
+    // Calculate metrics
+    const avgResponseTime = calculateAverageResponseTime(alerts);
+    const ackRate = calculateAcknowledgmentRate(alerts);
+    const resolutionRate = calculateResolutionRate(alerts);
+    const falseAlarmRate = calculateFalseAlarmRate(alerts);
+
+    document.getElementById('avgResponseTime').textContent = avgResponseTime;
+    document.getElementById('ackRate').textContent = ackRate + '%';
+    document.getElementById('ackBar').style.width = ackRate + '%';
+    document.getElementById('ackRateDetail').textContent = ackRate + '%';
     
-    // Object to track crash locations (by camera)
-    const crashLocations = {};
+    document.getElementById('resolutionRate').textContent = resolutionRate + '%';
+    document.getElementById('resBar').style.width = resolutionRate + '%';
+    document.getElementById('resRateDetail').textContent = resolutionRate + '%';
     
-    // Object to track crash status distribution
-    const crashStatusCounts = {
-        'Pending': 0,
-        'Verified': 0,
-        'False Positive': 0,
-        'other': 0
-    };
+    document.getElementById('falseRate').textContent = falseAlarmRate + '%';
+    document.getElementById('falseBar').style.width = falseAlarmRate + '%';
+    document.getElementById('falseRateDetail').textContent = falseAlarmRate + '%';
     
-    // Object to track crash confidence distribution
-    const confidenceLevels = {
-        'High (80-100%)': 0,
-        'Medium (50-79%)': 0,
-        'Low (0-49%)': 0,
-        'Unknown': 0
-    };
+    document.getElementById('totalAlerts').textContent = alerts.length;
+
+    createAnalyticsCharts(alerts);
+}
+
+// Load Locations View (frequent crash locations)
+async function loadLocationsView(supabase, dateFilter) {
+    // Load incidents with location data
+    const { data: incidents, error } = await supabase
+        .from('accident_detections')
+        .select(`
+            accident_id,
+            status,
+            camera_id,
+            cctv:camera_id (
+                location_name
+            )
+        `)
+        .gte('detection_time', dateFilter.start)
+        .lte('detection_time', dateFilter.end);
+
+    if (error) throw error;
+
+    // Group by location
+    const locationStats = {};
     
-    // Object to track crash frequency based on current filter
-    const frequencyData = {};
-    
-    crashes.forEach(crash => {
-        try {
-            // Get timestamp from crash detection
-            const date = crash.detection_time ? new Date(crash.detection_time) : new Date();
-            
-            // Track crash locations by camera ID
-            let cameraLocation = 'Unknown Camera';
-            if (crash.camera_id) {
-                cameraLocation = `Camera ${crash.camera_id}`;
-            }
-            crashLocations[cameraLocation] = (crashLocations[cameraLocation] || 0) + 1;
-            
-            // Track crash statuses
-            const status = crash.status || 'other';
-            if (crashStatusCounts.hasOwnProperty(status)) {
-                crashStatusCounts[status]++;
-            } else {
-                crashStatusCounts['other']++;
-            }
-            
-            // Track confidence levels
-            if (crash.confidence !== null && crash.confidence !== undefined) {
-                if (crash.confidence >= 80) {
-                    confidenceLevels['High (80-100%)']++;
-                } else if (crash.confidence >= 50) {
-                    confidenceLevels['Medium (50-79%)']++;
-                } else {
-                    confidenceLevels['Low (0-49%)']++;
-                }
-            } else {
-                confidenceLevels['Unknown']++;
-            }
-            
-            // Calculate frequency key based on current filter
-            let frequencyKey;
-            switch(currentFrequencyFilter) {
-                case 'daily':
-                    frequencyKey = date.toLocaleDateString('en-US', { weekday: 'short' });
-                    break;
-                case 'weekly':
-                    const weekNumber = getWeekNumber(date);
-                    frequencyKey = `Week ${weekNumber}`;
-                    break;
-                case 'monthly':
-                    frequencyKey = date.toLocaleDateString('en-US', { month: 'short' });
-                    break;
-            }
-            
-            frequencyData[frequencyKey] = (frequencyData[frequencyKey] || 0) + 1;
-            
-        } catch (e) {
-            console.error('Error processing crash for reports:', e, crash);
+    incidents.forEach(incident => {
+        const location = incident.cctv?.location_name || `Camera ${incident.camera_id}`;
+        
+        if (!locationStats[location]) {
+            locationStats[location] = {
+                total: 0,
+                verified: 0,
+                falseAlarm: 0,
+                pending: 0,
+                dispatched: 0
+            };
+        }
+        
+        locationStats[location].total++;
+        
+        switch(incident.status) {
+            case 'Verified':
+                locationStats[location].verified++;
+                break;
+            case 'False_Alarm':
+                locationStats[location].falseAlarm++;
+                break;
+            case 'Pending':
+                locationStats[location].pending++;
+                break;
+            case 'Admin_Confirmed':
+                locationStats[location].dispatched++;
+                break;
         }
     });
 
-    // Generate frequency labels in correct order
-    let frequencyLabels = [];
-    switch(currentFrequencyFilter) {
-        case 'daily':
-            frequencyLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            break;
-        case 'weekly':
-            const now = new Date();
-            const weeksInMonth = getWeeksInMonth(now.getFullYear(), now.getMonth());
-            frequencyLabels = Array.from({length: weeksInMonth}, (_, i) => `Week ${i + 1}`);
-            break;
-        case 'monthly':
-            frequencyLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            break;
-    }
+    // Convert to array and sort by total
+    const locationsArray = Object.entries(locationStats)
+        .map(([location, stats]) => ({ location, ...stats }))
+        .sort((a, b) => b.total - a.total);
+
+    // Update total locations
+    document.getElementById('totalLocations').textContent = locationsArray.length;
+
+    // Render locations table
+    renderLocationsTable(locationsArray);
+
+    // Create location charts
+    createLocationCharts(locationsArray);
+}
+
+// Load Top Tanods View
+async function loadTopTanodsView(supabase, dateFilter) {
+    // Load reports with tanod info
+    const { data: reports, error } = await supabase
+        .from('reports')
+        .select(`
+            report_id,
+            generated_by,
+            users!generated_by (
+                first_name,
+                last_name,
+                user_id
+            ),
+            accident_detections!detection_id (
+                status
+            )
+        `)
+        .gte('submitted_at', dateFilter.start)
+        .lte('submitted_at', dateFilter.end);
+
+    if (error) throw error;
+
+    // Group by tanod
+    const tanodStats = {};
     
-    // Create frequency data array aligned with labels
-    const frequencyDataArray = frequencyLabels.map(label => frequencyData[label] || 0);
+    reports.forEach(report => {
+        const tanodId = report.generated_by;
+        const tanod = report.users;
+        const tanodName = tanod ? `${tanod.first_name} ${tanod.last_name}` : 'Unknown Tanod';
+        
+        if (!tanodStats[tanodId]) {
+            tanodStats[tanodId] = {
+                name: tanodName,
+                totalReports: 0,
+                verified: 0,
+                falseAlarm: 0,
+                firstResponse: null
+            };
+        }
+        
+        tanodStats[tanodId].totalReports++;
+        
+        if (report.accident_detections?.status === 'Verified') {
+            tanodStats[tanodId].verified++;
+        } else if (report.accident_detections?.status === 'False_Alarm') {
+            tanodStats[tanodId].falseAlarm++;
+        }
+    });
 
-    // Sort crash locations by frequency (highest first)
-    const sortedLocations = Object.entries(crashLocations)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 8); // Get top 8 locations
+    // Get first response times (from alerts)
+    const { data: alerts } = await supabase
+        .from('alerts')
+        .select(`
+            acknowledged_at,
+            alert_time,
+            sent_to
+        `)
+        .gte('alert_time', dateFilter.start)
+        .lte('alert_time', dateFilter.end)
+        .not('acknowledged_at', 'is', null);
 
-    // Store processed data for chart generation
-    reportData = {
-        totalCrashes: crashes.length,
-        crashLocations: sortedLocations,
-        crashStatusData: Object.values(crashStatusCounts),
-        confidenceData: Object.values(confidenceLevels),
-        frequencyData: frequencyDataArray,
-        frequencyLabels: frequencyLabels,
-        dateFilter: currentDateFilter,
-        frequencyFilter: currentFrequencyFilter,
-        crashes: crashes  // Store raw crashes for recent list
-    };
+    // Calculate average response time per tanod
+    const responseTimes = {};
+    alerts.forEach(alert => {
+        const tanodId = alert.sent_to;
+        if (!responseTimes[tanodId]) {
+            responseTimes[tanodId] = [];
+        }
+        const responseTime = (new Date(alert.acknowledged_at) - new Date(alert.alert_time)) / 60000; // minutes
+        responseTimes[tanodId].push(responseTime);
+    });
+
+    // Calculate averages
+    Object.keys(tanodStats).forEach(tanodId => {
+        if (responseTimes[tanodId] && responseTimes[tanodId].length > 0) {
+            const avg = responseTimes[tanodId].reduce((a, b) => a + b, 0) / responseTimes[tanodId].length;
+            tanodStats[tanodId].avgResponseTime = Math.round(avg * 10) / 10 + ' min';
+        } else {
+            tanodStats[tanodId].avgResponseTime = 'N/A';
+        }
+    });
+
+    // Convert to array and sort by verified count
+    const tanodsArray = Object.values(tanodStats).sort((a, b) => b.verified - a.verified);
+
+    // Update total active tanods
+    document.getElementById('activeTanods').textContent = tanodsArray.length;
+
+    // Render tanods table
+    renderTanodsTable(tanodsArray);
 }
 
-// Helper function to get week number of a date
-function getWeekNumber(date) {
-    const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
-    const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
-    return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
-}
-
-// Helper function to get number of weeks in a month
-function getWeeksInMonth(year, month) {
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
-    const firstWeekday = firstDay.getDay();
-    return Math.ceil((daysInMonth + firstWeekday) / 7);
-}
-
-// Update the recent crashes list in the UI
-function updateRecentCrashes(crashes) {
-    const recentCrashesEl = document.querySelector('.recent-crashes-list');
-    if (!recentCrashesEl) return;
-    
-    if (crashes.length === 0) {
-        recentCrashesEl.innerHTML = `
-            <div class="text-center py-8 text-gray-500">
-                <i class="bi bi-car-front text-3xl mb-2"></i>
-                <p>No crashes detected for selected period</p>
-            </div>
+// Render incidents table
+function renderIncidentsTable(incidents) {
+    const tbody = document.getElementById('incidentsTableBody');
+    if (!incidents || incidents.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="text-center py-8 text-gray-500">
+                    <i class="fas fa-car-crash text-3xl mb-2"></i>
+                    <p>No incidents found for selected period</p>
+                </td>
+            </tr>
         `;
         return;
     }
-    
-    // Display top 5 most recent crashes
-    const recentCrashes = crashes.slice(0, 5);
-    
-    recentCrashesEl.innerHTML = recentCrashes.map(crash => {
-        // Get crash time
-        const crashTime = crash.detection_time ? new Date(crash.detection_time) : new Date();
+
+    tbody.innerHTML = incidents.map(incident => {
+        const location = incident.cctv?.location_name || `Camera ${incident.camera_id}`;
+        const detectionTime = new Date(incident.detection_time).toLocaleString();
         
-        const timeStr = crashTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const dateStr = crashTime.toLocaleDateString();
+        let statusBadge = '';
+        let statusColor = '';
         
-        // Get camera location
-        let location = 'Unknown Location';
-        if (crash.camera_id) {
-            location = `Camera ${crash.camera_id}`;
+        switch(incident.status) {
+            case 'Pending':
+                statusBadge = 'PENDING';
+                statusColor = 'bg-gold/10 text-gold';
+                break;
+            case 'Admin_Confirmed':
+                statusBadge = 'DISPATCHED';
+                statusColor = 'bg-sky/10 text-sky';
+                break;
+            case 'Verified':
+                statusBadge = 'RESOLVED';
+                statusColor = 'bg-greenlight/10 text-greenlight';
+                break;
+            case 'False_Alarm':
+                statusBadge = 'FALSE ALARM';
+                statusColor = 'bg-alert/10 text-alert';
+                break;
+            default:
+                statusBadge = incident.status;
+                statusColor = 'bg-gray-500/10 text-gray-400';
         }
-        
-        // Determine status color
-        let statusColor = 'text-gray-400';
-        if (crash.status === 'Pending') statusColor = 'text-alert';
-        else if (crash.status === 'Verified') statusColor = 'text-greenlight';
-        else if (crash.status === 'False Positive') statusColor = 'text-gold';
-        
-        // Determine confidence indicator
-        let confidenceBadge = '';
-        if (crash.confidence !== null && crash.confidence !== undefined) {
-            let confidenceColor = 'bg-gray-600';
-            if (crash.confidence >= 80) confidenceColor = 'bg-greenlight';
-            else if (crash.confidence >= 50) confidenceColor = 'bg-gold';
-            else confidenceColor = 'bg-alert';
-            
-            confidenceBadge = `<span class="px-2 py-1 text-xs rounded ${confidenceColor} text-white ml-2">${Math.round(crash.confidence)}%</span>`;
-        }
-        
+
         return `
-            <div class="bg-darkbg/50 p-3 rounded-lg border border-gray-700 hover:border-sky/50 transition-colors">
-                <div class="flex justify-between items-start mb-2">
-                    <div>
-                        <div class="font-medium text-white">${timeStr}</div>
-                        <div class="text-xs text-gray-400">${dateStr}</div>
-                    </div>
-                    <div class="flex items-center">
-                        <span class="px-2 py-1 text-xs rounded ${statusColor} bg-opacity-20 ${statusColor.replace('text-', 'bg-')}">
-                            ${crash.status || 'Unknown'}
-                        </span>
-                        ${confidenceBadge}
-                    </div>
-                </div>
-                <div class="text-sm text-gray-300 mb-1 truncate" title="${location}">📍 ${location}</div>
-                ${crash.description ? `<div class="text-xs text-gray-400 mt-1 italic">"${crash.description}"</div>` : ''}
-            </div>
+            <tr class="border-b border-gray-700 hover:bg-white/5">
+                <td class="px-4 py-3">#${incident.accident_id}</td>
+                <td class="px-4 py-3">${location}</td>
+                <td class="px-4 py-3">${detectionTime}</td>
+                <td class="px-4 py-3">
+                    <span class="px-2 py-1 rounded text-xs ${statusColor}">${statusBadge}</span>
+                </td>
+                <td class="px-4 py-3">${incident.admin_confirmed_at ? new Date(incident.admin_confirmed_at).toLocaleString() : '—'}</td>
+                <td class="px-4 py-3">
+                    <button onclick="viewIncident(${incident.accident_id})" 
+                            class="text-sky hover:text-sky/80 text-sm">
+                        View
+                    </button>
+                </td>
+            </tr>
         `;
     }).join('');
 }
 
-// Initialize all Chart.js charts
-function initializeCharts() {
-    // Destroy existing charts
-    Object.values(charts).forEach(chart => {
-        if (chart && typeof chart.destroy === 'function') {
-            chart.destroy();
-        }
-    });
-    charts = {};
+// Render reports table
+function renderReportsTable(reports) {
+    const tbody = document.getElementById('reportsTableBody');
+    if (!reports || reports.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="text-center py-8 text-gray-500">
+                    <i class="fas fa-file-alt text-3xl mb-2"></i>
+                    <p>No reports found for selected period</p>
+                </td>
+            </tr>
+        `;
+        return;
+    }
 
-    // 1. CRASH FREQUENCY CHART (Daily/Weekly/Monthly)
-    const frequencyCtx = document.getElementById('crashFrequencyChart');
-    if (frequencyCtx && reportData.frequencyData && reportData.frequencyLabels) {
-        charts.crashFrequencyChart = new Chart(frequencyCtx, {
+    tbody.innerHTML = reports.map(report => {
+        const tanod = report.users;
+        const incident = report.accident_detections;
+        const location = incident?.cctv?.location_name || 'Unknown';
+        const submittedTime = new Date(report.submitted_at).toLocaleString();
+        const tanodName = tanod ? `${tanod.first_name} ${tanod.last_name}` : 'Unknown Tanod';
+        
+        let statusBadge = '';
+        let statusColor = '';
+        
+        if (incident?.status === 'Verified') {
+            statusBadge = 'VERIFIED';
+            statusColor = 'bg-greenlight/10 text-greenlight';
+        } else if (incident?.status === 'False_Alarm') {
+            statusBadge = 'FALSE ALARM';
+            statusColor = 'bg-alert/10 text-alert';
+        } else {
+            statusBadge = incident?.status || 'Unknown';
+            statusColor = 'bg-gray-500/10 text-gray-400';
+        }
+
+        return `
+            <tr class="border-b border-gray-700 hover:bg-white/5">
+                <td class="px-4 py-3">#${report.report_id}</td>
+                <td class="px-4 py-3">${tanodName}</td>
+                <td class="px-4 py-3">${location}</td>
+                <td class="px-4 py-3">${submittedTime}</td>
+                <td class="px-4 py-3">
+                    <span class="px-2 py-1 rounded text-xs ${statusColor}">${statusBadge}</span>
+                </td>
+                <td class="px-4 py-3">
+                    ${report.photo_url ? 
+                        '<span class="text-greenlight"><i class="fas fa-camera"></i> Yes</span>' : 
+                        '<span class="text-gray-500">No</span>'}
+                </td>
+                <td class="px-4 py-3">
+                    <button onclick="viewFullReport(${report.report_id})" 
+                            class="text-sky hover:text-sky/80 text-sm mr-2">
+                        View
+                    </button>
+                    <button onclick="viewIncident(${incident?.accident_id})" 
+                            class="text-gold hover:text-gold/80 text-sm">
+                        Incident
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Render locations table
+function renderLocationsTable(locations) {
+    const tbody = document.getElementById('locationsTableBody');
+    if (!locations || locations.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center py-8 text-gray-500">
+                    <i class="fas fa-map-marker-alt text-3xl mb-2"></i>
+                    <p>No location data found</p>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = locations.map((loc, index) => {
+        const successRate = loc.total > 0 ? Math.round((loc.verified / loc.total) * 100) : 0;
+        
+        return `
+            <tr class="border-b border-gray-700 hover:bg-white/5">
+                <td class="px-4 py-3 font-medium">#${index + 1}</td>
+                <td class="px-4 py-3">${loc.location}</td>
+                <td class="px-4 py-3 font-bold text-sky">${loc.total}</td>
+                <td class="px-4 py-3 text-greenlight">${loc.verified}</td>
+                <td class="px-4 py-3 text-alert">${loc.falseAlarm}</td>
+                <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm ${successRate > 70 ? 'text-greenlight' : successRate > 40 ? 'text-gold' : 'text-alert'}">
+                            ${successRate}%
+                        </span>
+                        <div class="w-16 bg-gray-700 rounded-full h-1.5">
+                            <div class="bg-sky h-1.5 rounded-full" style="width: ${successRate}%"></div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Render top tanods table
+function renderTanodsTable(tanods) {
+    const tbody = document.getElementById('tanodsTableBody');
+    if (!tanods || tanods.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center py-8 text-gray-500">
+                    <i class="fas fa-users text-3xl mb-2"></i>
+                    <p>No tanod activity found</p>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = tanods.map((tanod, index) => {
+        const accuracyRate = tanod.totalReports > 0 ? Math.round((tanod.verified / tanod.totalReports) * 100) : 0;
+        
+        return `
+            <tr class="border-b border-gray-700 hover:bg-white/5">
+                <td class="px-4 py-3 font-medium">#${index + 1}</td>
+                <td class="px-4 py-3">${tanod.name}</td>
+                <td class="px-4 py-3 font-bold text-greenlight">${tanod.verified}</td>
+                <td class="px-4 py-3 text-alert">${tanod.falseAlarm}</td>
+                <td class="px-4 py-3">${tanod.totalReports}</td>
+                <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm ${accuracyRate > 80 ? 'text-greenlight' : accuracyRate > 60 ? 'text-gold' : 'text-alert'}">
+                            ${accuracyRate}%
+                        </span>
+                        <div class="w-16 bg-gray-700 rounded-full h-1.5">
+                            <div class="bg-greenlight h-1.5 rounded-full" style="width: ${accuracyRate}%"></div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Create incident charts
+function createIncidentCharts(incidents) {
+    // Status distribution
+    const statusCounts = {
+        'Pending': incidents.filter(i => i.status === 'Pending').length,
+        'Dispatched': incidents.filter(i => i.status === 'Admin_Confirmed').length,
+        'Verified': incidents.filter(i => i.status === 'Verified').length,
+        'False Alarm': incidents.filter(i => i.status === 'False_Alarm').length
+    };
+
+    const statusCtx = document.getElementById('incidentStatusChart');
+    if (statusCtx) {
+        if (charts.incidentStatusChart) charts.incidentStatusChart.destroy();
+        charts.incidentStatusChart = new Chart(statusCtx, {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(statusCounts),
+                datasets: [{
+                    data: Object.values(statusCounts),
+                    backgroundColor: ['#FCD34D', '#38BDF8', '#22C55E', '#EF4444']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'right', labels: { color: '#CBD5E1' } }
+                }
+            }
+        });
+    }
+}
+
+// Create location charts
+function createLocationCharts(locations) {
+    const top5 = locations.slice(0, 5);
+    
+    const locationCtx = document.getElementById('topLocationsChart');
+    if (locationCtx) {
+        if (charts.topLocationsChart) charts.topLocationsChart.destroy();
+        charts.topLocationsChart = new Chart(locationCtx, {
             type: 'bar',
             data: {
-                labels: reportData.frequencyLabels,
+                labels: top5.map(l => l.location.length > 15 ? l.location.substring(0, 15) + '...' : l.location),
                 datasets: [{
-                    label: 'Number of Crashes',
-                    data: reportData.frequencyData,
+                    label: 'Total Incidents',
+                    data: top5.map(l => l.total),
                     backgroundColor: '#38BDF8',
                     borderColor: '#0EA5E9',
                     borderWidth: 1
@@ -451,203 +717,129 @@ function initializeCharts() {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: {
-                        display: false
-                    },
-                    title: {
-                        display: true,
-                        text: getFrequencyChartTitle(),
-                        color: '#CBD5E1',
-                        font: { size: 16, weight: 'bold' }
-                    }
+                    legend: { display: false }
                 },
                 scales: {
-                    y: {
-                        beginAtZero: true,
-                        grid: { 
-                            color: 'rgba(203, 213, 225, 0.1)',
-                            drawBorder: false
-                        },
-                        ticks: { 
-                            color: '#CBD5E1',
-                            precision: 0
-                        }
-                    },
-                    x: {
-                        grid: { 
-                            color: 'rgba(203, 213, 225, 0.1)',
-                            drawBorder: false
-                        },
-                        ticks: { 
-                            color: '#CBD5E1'
-                        }
-                    }
+                    y: { beginAtZero: true, grid: { color: 'rgba(203, 213, 225, 0.1)' } },
+                    x: { grid: { display: false } }
                 }
             }
         });
     }
+}
 
-    // 2. CRASH LOCATIONS CHART (Top cameras)
-    const locationsCtx = document.getElementById('crashLocationsChart');
-    if (locationsCtx && reportData.crashLocations) {
-        const locationLabels = reportData.crashLocations.map(loc => loc[0]);
-        const locationData = reportData.crashLocations.map(loc => loc[1]);
+// Create analytics charts
+function createAnalyticsCharts(alerts) {
+    // Response time distribution
+    const responseTimes = [];
+    alerts.forEach(alert => {
+        if (alert.acknowledged_at && alert.alert_time) {
+            const time = (new Date(alert.acknowledged_at) - new Date(alert.alert_time)) / 60000; // minutes
+            responseTimes.push(time);
+        }
+    });
 
-        charts.crashLocationsChart = new Chart(locationsCtx, {
-            type: 'horizontalBar',
+    const responseCtx = document.getElementById('responseTimeChart');
+    if (responseCtx) {
+        if (charts.responseTimeChart) charts.responseTimeChart.destroy();
+        charts.responseTimeChart = new Chart(responseCtx, {
+            type: 'bar',
             data: {
-                labels: locationLabels,
+                labels: ['< 1 min', '1-5 min', '5-15 min', '15-30 min', '> 30 min'],
                 datasets: [{
-                    label: 'Number of Crashes',
-                    data: locationData,
-                    backgroundColor: '#EF4444', // Red for crashes
-                    borderColor: '#DC2626',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y',
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    title: {
-                        display: true,
-                        text: 'Top Crash Locations (by Camera)',
-                        color: '#CBD5E1',
-                        font: { size: 16, weight: 'bold' }
-                    }
-                },
-                scales: {
-                    x: {
-                        beginAtZero: true,
-                        grid: { 
-                            color: 'rgba(203, 213, 225, 0.1)',
-                            drawBorder: false
-                        },
-                        ticks: { 
-                            color: '#CBD5E1',
-                            precision: 0
-                        }
-                    },
-                    y: {
-                        grid: { 
-                            color: 'rgba(203, 213, 225, 0.1)',
-                            drawBorder: false
-                        },
-                        ticks: { 
-                            color: '#CBD5E1'
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    // 3. CRASH STATUS DISTRIBUTION CHART
-    const crashStatusCtx = document.getElementById('crashStatusChart');
-    if (crashStatusCtx && reportData.crashStatusData) {
-        charts.crashStatusChart = new Chart(crashStatusCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Pending', 'Verified', 'False Positive', 'Other'],
-                datasets: [{
-                    data: reportData.crashStatusData,
-                    backgroundColor: [
-                        '#F59E0B', // Pending - Amber
-                        '#10B981', // Verified - Green
-                        '#6B7280', // False Positive - Gray
-                        '#8B5CF6'  // Other - Violet
-                    ]
+                    label: 'Responses',
+                    data: [
+                        responseTimes.filter(t => t < 1).length,
+                        responseTimes.filter(t => t >= 1 && t < 5).length,
+                        responseTimes.filter(t => t >= 5 && t < 15).length,
+                        responseTimes.filter(t => t >= 15 && t < 30).length,
+                        responseTimes.filter(t => t >= 30).length
+                    ],
+                    backgroundColor: '#22C55E'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: { 
-                            color: '#CBD5E1',
-                            font: { size: 12 }
-                        }
-                    },
-                    title: {
-                        display: true,
-                        text: 'Crash Detection Status',
-                        color: '#CBD5E1',
-                        font: { size: 16, weight: 'bold' }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                const label = context.label || '';
-                                const value = context.raw || 0;
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = Math.round((value / total) * 100);
-                                return `${label}: ${value} (${percentage}%)`;
-                            }
-                        }
-                    }
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(203, 213, 225, 0.1)' } }
                 }
             }
         });
     }
 }
 
-// Get appropriate chart title based on frequency filter
-function getFrequencyChartTitle() {
-    switch(currentFrequencyFilter) {
-        case 'daily':
-            return 'Daily Crash Frequency';
-        case 'weekly':
-            return 'Weekly Crash Frequency';
-        case 'monthly':
-            return 'Monthly Crash Frequency';
-        default:
-            return 'Crash Frequency';
-    }
+// Calculate average response time
+function calculateAverageResponseTime(alerts) {
+    let totalTime = 0;
+    let count = 0;
+    
+    alerts.forEach(alert => {
+        if (alert.acknowledged_at && alert.alert_time) {
+            const responseTime = new Date(alert.acknowledged_at) - new Date(alert.alert_time);
+            totalTime += responseTime;
+            count++;
+        }
+    });
+    
+    if (count === 0) return 'N/A';
+    
+    const avgMs = totalTime / count;
+    const avgMinutes = Math.round(avgMs / 60000);
+    
+    if (avgMinutes < 1) return '< 1 min';
+    if (avgMinutes < 60) return `${avgMinutes} min`;
+    return `${Math.round(avgMinutes / 60)} hr`;
 }
 
-// Initialize with demo data if database is unavailable
-function initializeChartsWithDemoData() {
-    // Get appropriate labels based on filter
-    let frequencyLabels = [];
-    switch(currentFrequencyFilter) {
-        case 'daily':
-            frequencyLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            break;
-        case 'weekly':
-            frequencyLabels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
-            break;
-        case 'monthly':
-            frequencyLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            break;
-    }
+// Calculate acknowledgment rate
+function calculateAcknowledgmentRate(alerts) {
+    const total = alerts.length;
+    if (total === 0) return 0;
     
-    // Create empty data arrays
-    const emptyData = frequencyLabels.map(() => 0);
-    
-    reportData = {
-        totalCrashes: 0,
-        crashLocations: [],
-        crashStatusData: [0, 0, 0, 0], // All zeros
-        confidenceData: [0, 0, 0, 0], // All zeros
-        frequencyData: emptyData,
-        frequencyLabels: frequencyLabels,
-        dateFilter: currentDateFilter,
-        frequencyFilter: currentFrequencyFilter,
-        crashes: []
-    };
-    
-    // Initialize empty charts
-    initializeCharts();
-    updateRecentCrashes([]);
+    const acknowledged = alerts.filter(a => a.response_status === 'Acknowledged' || a.acknowledged_at).length;
+    return Math.round((acknowledged / total) * 100);
 }
 
-// Generate and download a crash report
+// Calculate resolution rate
+function calculateResolutionRate(alerts) {
+    const total = alerts.length;
+    if (total === 0) return 0;
+    
+    const resolved = alerts.filter(a => a.response_status === 'Resolved' || a.resolved_at).length;
+    return Math.round((resolved / total) * 100);
+}
+
+// Calculate false alarm rate
+function calculateFalseAlarmRate(alerts) {
+    const total = alerts.length;
+    if (total === 0) return 0;
+    
+    // Count alerts related to false alarm incidents
+    const falseAlarms = alerts.filter(a => a.accident_detections?.status === 'False_Alarm').length;
+    return Math.round((falseAlarms / total) * 100);
+}
+
+function showNoDataMessage() {
+    // Show messages in tables
+    document.getElementById('incidentsTableBody').innerHTML = `
+        <tr><td colspan="7" class="text-center py-8 text-gray-500">No data available</td></tr>
+    `;
+    document.getElementById('reportsTableBody').innerHTML = `
+        <tr><td colspan="7" class="text-center py-8 text-gray-500">No data available</td></tr>
+    `;
+    document.getElementById('locationsTableBody').innerHTML = `
+        <tr><td colspan="6" class="text-center py-8 text-gray-500">No data available</td></tr>
+    `;
+    document.getElementById('tanodsTableBody').innerHTML = `
+        <tr><td colspan="6" class="text-center py-8 text-gray-500">No data available</td></tr>
+    `;
+}
+
+// Export report as PDF/text
 async function exportReport() {
     try {
         const supabase = getSupabaseClient();
@@ -658,25 +850,39 @@ async function exportReport() {
 
         const dateFilter = buildDateFilter();
         
-        // Fetch crash data for the report
-        const { data: crashData, error } = await supabase
+        // Fetch all data for the report
+        const { data: incidents } = await supabase
             .from('accident_detections')
-            .select('*')
+            .select(`
+                *,
+                cctv:camera_id (location_name)
+            `)
             .gte('detection_time', dateFilter.start)
-            .lte('detection_time', dateFilter.end)
-            .order('detection_time', { ascending: false });
+            .lte('detection_time', dateFilter.end);
 
-        if (error) {
-            throw error;
-        }
+        const { data: reports } = await supabase
+            .from('reports')
+            .select(`
+                *,
+                users!generated_by (first_name, last_name)
+            `)
+            .gte('submitted_at', dateFilter.start)
+            .lte('submitted_at', dateFilter.end);
 
-        // Generate report text content
-        const reportContent = generateReportContent(crashData, dateFilter);
+        const reportContent = generateFullReport(incidents || [], reports || [], dateFilter);
         
         // Trigger download
-        downloadPDF(reportContent, `DisgrasEye_Crash_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+        const blob = new Blob([reportContent], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `DisgrasEye_Report_${new Date().toISOString().split('T')[0]}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
         
-        alert('Crash report generated successfully!');
+        alert('Report generated successfully!');
 
     } catch (error) {
         console.error('Error generating report:', error);
@@ -684,81 +890,76 @@ async function exportReport() {
     }
 }
 
-// Format report content as text
-function generateReportContent(data, dateFilter) {
-    const startDate = new Date(dateFilter.start);
-    const endDate = new Date(dateFilter.end);
+function generateFullReport(incidents, reports, dateFilter) {
+    const startDate = new Date(dateFilter.start).toLocaleDateString();
+    const endDate = new Date(dateFilter.end).toLocaleDateString();
     
-    // Calculate summaries
-    const locationSummary = {};
-    const statusSummary = {};
-    
-    data.forEach(crash => {
-        // Count crashes by location
-        let location = 'Unknown Location';
-        if (crash.camera_id) {
-            location = `Camera ${crash.camera_id}`;
-        }
-        locationSummary[location] = (locationSummary[location] || 0) + 1;
-        
-        // Count crashes by status
-        const status = crash.status || 'Unknown';
-        statusSummary[status] = (statusSummary[status] || 0) + 1;
+    // Calculate location stats
+    const locationStats = {};
+    incidents.forEach(i => {
+        const loc = i.cctv?.location_name || `Camera ${i.camera_id}`;
+        locationStats[loc] = (locationStats[loc] || 0) + 1;
     });
+    
+    const topLocations = Object.entries(locationStats)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([loc, count]) => `  - ${loc}: ${count} incidents`)
+        .join('\n');
 
-    // Build report text
+    // Calculate tanod stats
+    const tanodStats = {};
+    reports.forEach(r => {
+        const name = r.users ? `${r.users.first_name} ${r.users.last_name}` : 'Unknown';
+        tanodStats[name] = (tanodStats[name] || 0) + 1;
+    });
+    
+    const topTanods = Object.entries(tanodStats)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => `  - ${name}: ${count} reports`)
+        .join('\n');
+
     return `
-        DisgrasEye Crash Detection Report
-        =================================
-        Date Range: ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}
-        Generated: ${new Date().toLocaleString()}
-        Frequency View: ${currentFrequencyFilter.charAt(0).toUpperCase() + currentFrequencyFilter.slice(1)}
-        
-        SUMMARY:
-        - Total Crashes Detected: ${data.length}
-        - Date Filter: ${currentDateFilter.charAt(0).toUpperCase() + currentDateFilter.slice(1)}
-        
-        CRASH LOCATIONS (Top 10):
-        ${Object.entries(locationSummary)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10)
-            .map(([location, count], i) => 
-                `  ${i+1}. ${location}: ${count} crashes`
-            ).join('\n')}
-        
-        CRASH STATUS DISTRIBUTION:
-        ${Object.entries(statusSummary)
-            .map(([status, count]) => 
-                `  ${status}: ${count} crashes`
-            ).join('\n')}
-        
-        DETAILED CRASH DETECTIONS (First 20):
-        ${data.slice(0, 20).map((crash, i) => {
-            const crashTime = crash.detection_time ? new Date(crash.detection_time).toLocaleString() : 'Unknown';
-            
-            return `
-        ${i+1}. Crash ID: ${crash.accident_id || 'N/A'}
-           Detection Time: ${crashTime}
-           Camera: ${crash.camera_id || 'Unknown'}
-           Status: ${crash.status || 'Unknown'}
-           Confidence: ${crash.confidence ? crash.confidence + '%' : 'N/A'}
-           ${crash.description ? `Description: ${crash.description}` : ''}
-            `;
-        }).join('\n')}
-    `;
-}
+========================================
+        DISGRASEYE INCIDENT REPORT
+========================================
+Date Range: ${startDate} - ${endDate}
+Generated: ${new Date().toLocaleString()}
 
-// Download report as text file
-function downloadPDF(content, filename) {
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
+SUMMARY STATISTICS
+----------------------------------------
+Total Incidents: ${incidents.length}
+├─ Pending: ${incidents.filter(i => i.status === 'Pending').length}
+├─ Dispatched: ${incidents.filter(i => i.status === 'Admin_Confirmed').length}
+├─ Verified: ${incidents.filter(i => i.status === 'Verified').length}
+└─ False Alarms: ${incidents.filter(i => i.status === 'False_Alarm').length}
+
+Total Reports Submitted: ${reports.length}
+Unique Tanods: ${new Set(reports.map(r => r.generated_by)).size}
+
+TOP CRASH LOCATIONS
+----------------------------------------
+${topLocations || '  No location data'}
+
+TOP PERFORMING TANODS
+----------------------------------------
+${topTanods || '  No tanod activity'}
+
+INCIDENT LIST (First 20)
+----------------------------------------
+${incidents.slice(0, 20).map((i, idx) => {
+    const time = new Date(i.detection_time).toLocaleString();
+    const location = i.cctv?.location_name || `Camera ${i.camera_id}`;
+    return `${idx+1}. #${i.accident_id} | ${time} | ${location} | ${i.status}`;
+}).join('\n')}
+
+${incidents.length > 20 ? `\n... and ${incidents.length - 20} more incidents` : ''}
+
+========================================
+        END OF REPORT
+========================================
+    `;
 }
 </script>
 {% endblock %}
@@ -766,163 +967,441 @@ function downloadPDF(content, filename) {
 {% block content %}
 <div class="mb-8">
     <h2 class="text-2xl font-bold flex items-center gap-2">
-        <i class="bi bi-car-front text-alert"></i> Crash Detection Analytics
+        <i class="fas fa-chart-bar text-sky"></i> Reports & Analytics
     </h2>
-    <p class="text-gray-400 mt-2">Analyze crash detection patterns and statistics</p>
+    <p class="text-gray-400 mt-2">Comprehensive incident reporting and analysis</p>
+</div>
+
+<!-- View Tabs -->
+<div class="bg-[#1E293B] rounded-xl p-4 border border-gray-600 mb-6">
+    <div class="flex flex-wrap gap-3">
+        <button class="view-tab-btn px-6 py-2.5 rounded-lg bg-sky text-white font-medium" data-view="incidents">
+            <i class="fas fa-car-crash mr-2"></i> Incidents
+        </button>
+        <button class="view-tab-btn px-6 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium" data-view="reports">
+            <i class="fas fa-file-alt mr-2"></i> Tanod Reports
+        </button>
+        <button class="view-tab-btn px-6 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium" data-view="analytics">
+            <i class="fas fa-chart-line mr-2"></i> Analytics
+        </button>
+        <button class="view-tab-btn px-6 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium" data-view="locations">
+            <i class="fas fa-map-marker-alt mr-2"></i> Top Locations
+        </button>
+        <button class="view-tab-btn px-6 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium" data-view="topTanods">
+            <i class="fas fa-crown mr-2"></i> Top Tanods
+        </button>
+    </div>
 </div>
 
 <!-- Date Filter Section -->
 <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600 mb-8">
     <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
-        <i class="bi bi-calendar-range text-sky"></i> Select Date Range
+        <i class="fas fa-calendar-alt text-sky"></i> Date Range
     </h3>
     
-    <div class="flex flex-wrap gap-3 mb-6">
-        <!-- Date filter buttons -->
+    <div class="flex flex-wrap gap-3 mb-4">
         <button class="date-filter-btn px-5 py-2.5 rounded-lg bg-sky text-white font-medium" data-filter="today">
             Today
         </button>
         <button class="date-filter-btn px-5 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium" data-filter="week">
-            This Week
+            Last 7 Days
         </button>
         <button class="date-filter-btn px-5 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium" data-filter="month">
             This Month
         </button>
         
-        <!-- Custom date picker -->
         <div class="relative">
             <input type="date" id="customDatePicker" 
-                   class="bg-darkbg border border-gray-600 rounded-lg px-5 py-2.5 text-white font-medium">
-            <label class="absolute -top-2 left-3 px-1 text-xs text-gray-400 bg-[#1E293B]">
-                Custom Date
-            </label>
+                   class="bg-darkbg border border-gray-600 rounded-lg px-5 py-2.5 text-white">
         </div>
         
-        <!-- Refresh button -->
         <button onclick="loadReportData()" class="px-5 py-2.5 rounded-lg bg-greenlight hover:bg-greenlight/80 text-white font-medium flex items-center gap-2">
-            <i class="bi bi-arrow-clockwise"></i> Refresh
+            <i class="fas fa-sync-alt"></i> Refresh
+        </button>
+        
+        <button onclick="exportReport()" class="px-5 py-2.5 rounded-lg bg-gold hover:bg-yellow-500 text-darkblue font-medium flex items-center gap-2">
+            <i class="fas fa-download"></i> Export Report
         </button>
     </div>
-    
-    <!-- Status display -->
-    <div class="text-sm text-gray-400">
-        <p>Analyzing crash detection data. Data updates when you change filters.</p>
-    </div>
 </div>
 
-<!-- Main Charts Section -->
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-    <!-- Crash Frequency Chart -->
-    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
-        <div class="flex justify-between items-center mb-6">
-            <h3 class="text-xl font-bold flex items-center gap-2">
-                <i class="bi bi-bar-chart-fill text-sky"></i> Crash Frequency
-            </h3>
-            <div class="flex gap-2">
-                <!-- Frequency filter buttons -->
-                <button class="frequency-filter-btn px-3 py-1.5 text-sm rounded bg-sky text-white font-medium" data-frequency="daily">
-                    Daily
-                </button>
-                <button class="frequency-filter-btn px-3 py-1.5 text-sm rounded bg-gray-700 text-gray-300 font-medium" data-frequency="weekly">
-                    Weekly
-                </button>
-                <button class="frequency-filter-btn px-3 py-1.5 text-sm rounded bg-gray-700 text-gray-300 font-medium" data-frequency="monthly">
-                    Monthly
-                </button>
+<!-- INCIDENTS VIEW -->
+<div id="incidentsView" class="view-section">
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Total</p>
+                    <p class="text-3xl font-bold text-sky" id="totalIncidents">0</p>
+                </div>
+                <i class="fas fa-car-crash text-3xl text-sky/50"></i>
             </div>
         </div>
-        <div class="h-72">
-            <canvas id="crashFrequencyChart"></canvas>
-        </div>
-        <div class="mt-4 text-sm text-gray-400">
-            <p>Shows crash detection distribution by selected time period.</p>
-        </div>
-    </div>
-
-    <!-- Crash Locations Chart -->
-    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
-        <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
-            <i class="bi bi-map-fill text-alert"></i> Top Crash Locations
-        </h3>
-        <div class="h-72">
-            <canvas id="crashLocationsChart"></canvas>
-        </div>
-        <div class="mt-4 text-sm text-gray-400">
-            <p>Cameras detecting the most crashes (high-risk locations)</p>
-        </div>
-    </div>
-</div>
-
-<!-- Status Distribution & Recent Crashes Section -->
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-    <!-- Crash Status Distribution -->
-    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
-        <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
-            <i class="bi bi-clipboard-check text-gold"></i> Crash Detection Status
-        </h3>
-        <div class="h-72">
-            <canvas id="crashStatusChart"></canvas>
-        </div>
-        <div class="mt-4 text-sm text-gray-400">
-            <p>Distribution of crash detection verification status</p>
-        </div>
-    </div>
-
-    <!-- Recent Crashes List -->
-    <div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
-        <div class="flex justify-between items-center mb-6">
-            <h3 class="text-xl font-bold flex items-center gap-2">
-                <i class="bi bi-clock-history text-greenlight"></i> Recent Crash Detections
-            </h3>
-            <span class="text-sm text-gray-400">Latest 5 detections</span>
-        </div>
-        <div class="space-y-4 max-h-72 overflow-y-auto pr-2 recent-crashes-list">
-            <!-- This will be populated by JavaScript -->
-            <div class="text-center py-8 text-gray-500">
-                <i class="bi bi-arrow-clockwise animate-spin text-2xl mb-2"></i>
-                <p>Loading recent crash detections...</p>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Pending</p>
+                    <p class="text-3xl font-bold text-gold" id="pendingIncidents">0</p>
+                </div>
+                <i class="fas fa-clock text-3xl text-gold/50"></i>
             </div>
         </div>
-        <div class="mt-4 text-sm text-gray-400">
-            <p>Most recent crash detections for the selected time period</p>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Dispatched</p>
+                    <p class="text-3xl font-bold text-sky" id="dispatchedIncidents">0</p>
+                </div>
+                <i class="fas fa-paper-plane text-3xl text-sky/50"></i>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Verified</p>
+                    <p class="text-3xl font-bold text-greenlight" id="verifiedIncidents">0</p>
+                </div>
+                <i class="fas fa-check-circle text-3xl text-greenlight/50"></i>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">False Alarms</p>
+                    <p class="text-3xl font-bold text-alert" id="falseAlarmIncidents">0</p>
+                </div>
+                <i class="fas fa-times-circle text-3xl text-alert/50"></i>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Resolution</p>
+                    <p class="text-3xl font-bold text-greenlight" id="resolutionRate">0%</p>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
+                    <div class="bg-greenlight h-2 rounded-full" id="resolutionBar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <h4 class="font-semibold mb-4">Incident Status Distribution</h4>
+            <div class="h-64">
+                <canvas id="incidentStatusChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <h4 class="font-semibold mb-4">Hourly Incident Distribution</h4>
+            <div class="h-64">
+                <canvas id="hourlyDistributionChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Incidents Table -->
+    <div class="bg-[#1E293B] rounded-xl border border-gray-600 overflow-hidden">
+        <div class="p-4 border-b border-gray-600">
+            <h4 class="font-semibold">Incident List</h4>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-darkbg/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">ID</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Location</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Detection Time</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Status</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Admin Response</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="incidentsTableBody">
+                    <tr><td colspan="6" class="text-center py-8 text-gray-500">Loading...</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
 
-<!-- Report Generation Section -->
-<div class="bg-[#1E293B] rounded-xl p-6 border border-gray-600">
-    <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
-        <i class="bi bi-file-earmark-arrow-down text-sky"></i> Generate Crash Report
-    </h3>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="bg-darkbg p-5 rounded-lg border border-gray-600">
-            <h4 class="font-semibold text-lg mb-3 text-sky">Export Crash Report</h4>
-            <p class="text-sm text-gray-400 mb-4">Generate a detailed crash detection report from current filters</p>
-            <button onclick="exportReport()" class="w-full bg-sky hover:bg-sky/80 text-white py-3 rounded-lg transition flex items-center justify-center gap-2 font-medium">
-                <i class="bi bi-download"></i> Download Report
-            </button>
+<!-- REPORTS VIEW -->
+<div id="reportsView" class="view-section hidden">
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Total Reports</p>
+                    <p class="text-3xl font-bold text-sky" id="totalReports">0</p>
+                </div>
+                <i class="fas fa-file-alt text-3xl text-sky/50"></i>
+            </div>
         </div>
-        <div class="bg-darkbg p-5 rounded-lg border border-gray-600">
-            <h4 class="font-semibold text-lg mb-3 text-greenlight">Crash Analytics Insights</h4>
-            <ul class="text-sm text-gray-400 space-y-3">
-                <li class="flex items-start gap-3">
-                    <i class="bi bi-calendar-check text-sky mt-0.5"></i>
-                    <span>Analyze <strong>crash patterns</strong> over time to identify high-risk periods</span>
-                </li>
-                <li class="flex items-start gap-3">
-                    <i class="bi bi-map text-sky mt-0.5"></i>
-                    <span>Identify <strong>high-risk locations</strong> by camera to prioritize safety measures</span>
-                </li>
-                <li class="flex items-start gap-3">
-                    <i class="bi bi-check-circle text-sky mt-0.5"></i>
-                    <span>Monitor <strong>verification rates</strong> to improve detection accuracy</span>
-                </li>
-                <li class="flex items-start gap-3">
-                    <i class="bi bi-download text-sky mt-0.5"></i>
-                    <span>Export reports for <strong>safety audits</strong> and analysis</span>
-                </li>
-            </ul>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Verified</p>
+                    <p class="text-3xl font-bold text-greenlight" id="verifiedReports">0</p>
+                </div>
+                <i class="fas fa-check-circle text-3xl text-greenlight/50"></i>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">False Alarms</p>
+                    <p class="text-3xl font-bold text-alert" id="falseAlarmReports">0</p>
+                </div>
+                <i class="fas fa-times-circle text-3xl text-alert/50"></i>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Active Tanods</p>
+                    <p class="text-3xl font-bold text-gold" id="uniqueTanods">0</p>
+                </div>
+                <i class="fas fa-users text-3xl text-gold/50"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reports Table -->
+    <div class="bg-[#1E293B] rounded-xl border border-gray-600 overflow-hidden">
+        <div class="p-4 border-b border-gray-600">
+            <h4 class="font-semibold">Tanod Reports</h4>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-darkbg/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Report ID</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Tanod</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Location</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Submitted</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Status</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Photo</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="reportsTableBody">
+                    <tr><td colspan="7" class="text-center py-8 text-gray-500">Loading...</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
-{% endblock %} 
+
+<!-- ANALYTICS VIEW -->
+<div id="analyticsView" class="view-section hidden">
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Avg Response</p>
+                    <p class="text-3xl font-bold text-sky" id="avgResponseTime">—</p>
+                </div>
+                <i class="fas fa-clock text-3xl text-sky/50"></i>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Acknowledgment</p>
+                    <p class="text-3xl font-bold text-greenlight" id="ackRate">0%</p>
+                </div>
+                <i class="fas fa-check-circle text-3xl text-greenlight/50"></i>
+            </div>
+            <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
+                <div class="bg-greenlight h-2 rounded-full" id="ackBar" style="width: 0%"></div>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Resolution</p>
+                    <p class="text-3xl font-bold text-gold" id="resolutionRate">0%</p>
+                </div>
+                <i class="fas fa-check-double text-3xl text-gold/50"></i>
+            </div>
+            <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
+                <div class="bg-gold h-2 rounded-full" id="resBar" style="width: 0%"></div>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">False Alarm</p>
+                    <p class="text-3xl font-bold text-alert" id="falseRate">0%</p>
+                </div>
+                <i class="fas fa-exclamation-triangle text-3xl text-alert/50"></i>
+            </div>
+            <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
+                <div class="bg-alert h-2 rounded-full" id="falseBar" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analytics Charts -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <h4 class="font-semibold mb-4">Response Time Distribution</h4>
+            <div class="h-64">
+                <canvas id="responseTimeChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600">
+            <h4 class="font-semibold mb-4">Performance Metrics</h4>
+            <div class="space-y-4">
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <span>Acknowledgment Rate</span>
+                        <span class="text-sky" id="ackRateDetail">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div class="bg-sky h-2 rounded-full" id="ackBarDetail" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <span>Resolution Rate</span>
+                        <span class="text-greenlight" id="resRateDetail">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div class="bg-greenlight h-2 rounded-full" id="resBarDetail" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <span>False Alarm Rate</span>
+                        <span class="text-alert" id="falseRateDetail">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div class="bg-alert h-2 rounded-full" id="falseBarDetail" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- TOP LOCATIONS VIEW -->
+<div id="locationsView" class="view-section hidden">
+    <!-- Stats Card -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600 md:col-span-1">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Total Locations</p>
+                    <p class="text-3xl font-bold text-sky" id="totalLocations">0</p>
+                </div>
+                <i class="fas fa-map-marked-alt text-3xl text-sky/50"></i>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600 md:col-span-2">
+            <h4 class="font-semibold mb-2">Most Active Location</h4>
+            <div class="h-32 flex items-center justify-center text-gray-400" id="topLocationDisplay">
+                Loading...
+            </div>
+        </div>
+    </div>
+
+    <!-- Locations Chart -->
+    <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600 mb-8">
+        <h4 class="font-semibold mb-4">Top 5 Crash Locations</h4>
+        <div class="h-72">
+            <canvas id="topLocationsChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Locations Table -->
+    <div class="bg-[#1E293B] rounded-xl border border-gray-600 overflow-hidden">
+        <div class="p-4 border-b border-gray-600">
+            <h4 class="font-semibold">Location Performance</h4>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-darkbg/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Rank</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Location</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Total Incidents</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Verified</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">False Alarms</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Success Rate</th>
+                    </tr>
+                </thead>
+                <tbody id="locationsTableBody">
+                    <tr><td colspan="6" class="text-center py-8 text-gray-500">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- TOP TANODS VIEW -->
+<div id="topTanodsView" class="view-section hidden">
+    <!-- Stats Card -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600 md:col-span-1">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-sm text-gray-400">Active Tanods</p>
+                    <p class="text-3xl font-bold text-sky" id="activeTanods">0</p>
+                </div>
+                <i class="fas fa-users text-3xl text-sky/50"></i>
+            </div>
+        </div>
+        
+        <div class="bg-[#1E293B] p-6 rounded-xl border border-gray-600 md:col-span-2">
+            <h4 class="font-semibold mb-2">Top Performer</h4>
+            <div class="h-32 flex items-center justify-center text-gray-400" id="topTanodDisplay">
+                Loading...
+            </div>
+        </div>
+    </div>
+
+    <!-- Tanods Table -->
+    <div class="bg-[#1E293B] rounded-xl border border-gray-600 overflow-hidden">
+        <div class="p-4 border-b border-gray-600">
+            <h4 class="font-semibold">Tanod Performance Rankings</h4>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-darkbg/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Rank</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Tanod</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Verified</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">False Alarms</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Total Reports</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Accuracy</th>
+                    </tr>
+                </thead>
+                <tbody id="tanodsTableBody">
+                    <tr><td colspan="6" class="text-center py-8 text-gray-500">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

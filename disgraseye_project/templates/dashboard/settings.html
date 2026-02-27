@@ -2,34 +2,1079 @@
 
 {% block title %}Settings | DisgrasEye{% endblock %}
 
+{% block extra_scripts %}
+<script>
+let settingsData = {
+    user: null,
+    users: [],
+    cameras: [],
+    stats: {}
+};
+
+// Get Supabase client - with service role for admin operations
+function getSupabaseClient(useServiceKey = false) {
+    // Use the global function from base.html
+    if (window.initSupabase) {
+        return window.initSupabase(useServiceKey);
+    }
+    
+    // Fallback
+    const supabaseUrl = "{{ SUPABASE_URL|default:'' }}";
+    const supabaseKey = useServiceKey 
+        ? "{{ SUPABASE_SERVICE_ROLE_KEY|escapejs }}" 
+        : "{{ SUPABASE_ANON_KEY|escapejs }}";
+    
+    return supabase.createClient(supabaseUrl, supabaseKey);
+}
+
+// Load all settings data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    initializeTabs();
+    loadUserData();
+    loadAllUsers();
+    loadCameras();
+    loadSystemStats();
+});
+
+// Tab switching
+function initializeTabs() {
+    const tabs = document.querySelectorAll('.settings-tab-btn');
+    const tabContents = document.querySelectorAll('.settings-tab');
+    
+    tabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            tabs.forEach(t => {
+                t.classList.remove('bg-sky', 'text-white');
+                t.classList.add('bg-gray-700', 'text-gray-300');
+            });
+            
+            this.classList.remove('bg-gray-700', 'text-gray-300');
+            this.classList.add('bg-sky', 'text-white');
+            
+            tabContents.forEach(content => {
+                content.classList.add('hidden');
+            });
+            
+            const tabId = this.dataset.tab + 'Tab';
+            document.getElementById(tabId).classList.remove('hidden');
+            
+            // Refresh data when switching to specific tabs
+            if (this.dataset.tab === 'users') {
+                loadAllUsers();
+            } else if (this.dataset.tab === 'cameras') {
+                loadCameras();
+            }
+        });
+    });
+}
+
+// Load current user data
+async function loadUserData() {
+    try {
+        const supabase = getSupabaseClient(false);
+        if (!supabase) return;
+
+        const authId = "{{ request.session.supabase_user.id }}";
+        if (!authId) return;
+
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('auth_id', authId)
+            .single();
+
+        if (error) throw error;
+        
+        settingsData.user = user;
+        updateProfileForm(user);
+        
+        // Show/hide admin-only sections
+        if (user.role === 'admin') {
+            document.querySelectorAll('.admin-only').forEach(el => el.classList.remove('hidden'));
+        } else {
+            document.querySelectorAll('.admin-only').forEach(el => el.classList.add('hidden'));
+        }
+        
+    } catch (error) {
+        console.error('Error loading user data:', error);
+    }
+}
+
+// Update profile form with user data
+function updateProfileForm(user) {
+    document.getElementById('firstName').value = user.first_name || '';
+    document.getElementById('lastName').value = user.last_name || '';
+    document.getElementById('userEmail').value = user.email || '';
+    document.getElementById('userRoleDisplay').textContent = user.role || 'tanod';
+    
+    // Update avatar with initials
+    const initials = (user.first_name?.charAt(0) || 'U') + (user.last_name?.charAt(0) || 'R');
+    document.getElementById('userInitials').textContent = initials;
+}
+
+// Load all users (admin only) - uses anon key since it's SELECT only
+async function loadAllUsers() {
+    try {
+        const supabase = getSupabaseClient(false);
+        if (!supabase) return;
+
+        const { data: users, error } = await supabase
+            .from('users')
+            .select(`
+                user_id,
+                auth_id,
+                first_name,
+                last_name,
+                email,
+                role,
+                created_at
+            `)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        
+        settingsData.users = users || [];
+        renderUsersTable(users || []);
+        updateUserStats(users || []);
+        
+    } catch (error) {
+        console.error('Error loading users:', error);
+        document.getElementById('usersTableBody').innerHTML = `
+            <tr><td colspan="6" class="text-center py-8 text-alert">Error loading users: ${error.message}</td></tr>
+        `;
+    }
+}
+
+// Render users table
+function renderUsersTable(users) {
+    const tbody = document.getElementById('usersTableBody');
+    if (!tbody) return;
+    
+    if (users.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center py-8 text-gray-500">
+                    <i class="fas fa-users text-3xl mb-2"></i>
+                    <p>No users found</p>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = users.map(user => {
+        const created = new Date(user.created_at).toLocaleDateString();
+        const roleClass = user.role === 'admin' ? 'text-sky' : 'text-gold';
+        const roleIcon = user.role === 'admin' ? 'fa-crown' : 'fa-user-shield';
+        
+        return `
+            <tr class="border-b border-gray-700 hover:bg-white/5">
+                <td class="px-4 py-3">#${user.user_id}</td>
+                <td class="px-4 py-3 font-medium">${user.first_name} ${user.last_name}</td>
+                <td class="px-4 py-3">${user.email || '—'}</td>
+                <td class="px-4 py-3">
+                    <span class="flex items-center gap-1 ${roleClass}">
+                        <i class="fas ${roleIcon} text-xs"></i>
+                        ${user.role}
+                    </span>
+                </td>
+                <td class="px-4 py-3">${created}</td>
+                <td class="px-4 py-3">
+                    <button onclick="editUser(${user.user_id}, '${user.role}')" class="text-sky hover:text-sky/80 mr-2" title="Edit Role">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    ${user.user_id !== settingsData.user?.user_id ? `
+                        <button onclick="deleteUser(${user.user_id}, '${user.auth_id}')" class="text-alert hover:text-alert/80" title="Delete User">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    ` : ''}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Update user stats
+function updateUserStats(users) {
+    const totalUsers = users.length;
+    const admins = users.filter(u => u.role === 'admin').length;
+    const tanods = users.filter(u => u.role === 'tanod').length;
+    
+    document.getElementById('totalUsers').textContent = totalUsers;
+    document.getElementById('adminCount').textContent = admins;
+    document.getElementById('tanodCount').textContent = tanods;
+}
+
+// CREATE USER - Uses service role key for admin operations
+async function createUser(event) {
+    event.preventDefault();
+    
+    const email = document.getElementById('newUserEmail').value;
+    const password = document.getElementById('newUserPassword').value;
+    const firstName = document.getElementById('newUserFirstName').value;
+    const lastName = document.getElementById('newUserLastName').value;
+    const role = document.getElementById('newUserRole').value;
+    
+    if (!email || !password || !firstName || !lastName) {
+        showToast('Please fill in all fields', 'error');
+        return;
+    }
+    
+    if (password.length < 6) {
+        showToast('Password must be at least 6 characters', 'error');
+        return;
+    }
+    
+    try {
+        // Show loading state
+        const submitBtn = document.querySelector('#newUserModal button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+        submitBtn.disabled = true;
+
+        // Use SERVICE ROLE client for admin operations
+        const supabaseAdmin = getSupabaseClient(true);
+        if (!supabaseAdmin) throw new Error('Admin client not available');
+
+        console.log('Creating user with email:', email);
+
+        // 1. Create auth user using admin API
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+            email: email,
+            password: password,
+            email_confirm: true,
+            user_metadata: {
+                first_name: firstName,
+                last_name: lastName
+            }
+        });
+
+        if (authError) {
+            console.error('Auth error:', authError);
+            throw authError;
+        }
+
+        console.log('Auth user created:', authData.user.id);
+
+        // 2. Create user profile in users table
+        const { error: profileError } = await supabaseAdmin
+            .from('users')
+            .insert({
+                auth_id: authData.user.id,
+                first_name: firstName,
+                last_name: lastName,
+                email: email,
+                role: role
+            });
+
+        if (profileError) {
+            console.error('Profile error:', profileError);
+            // Rollback: delete the auth user if profile creation fails
+            await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+            throw profileError;
+        }
+
+        console.log('User profile created successfully');
+
+        // Clear form
+        document.getElementById('newUserForm').reset();
+        
+        showToast(`User ${firstName} ${lastName} created successfully!`, 'success');
+        loadAllUsers(); // Refresh the list
+        
+        // Close modal
+        closeModal('newUserModal');
+        
+    } catch (error) {
+        console.error('Error creating user:', error);
+        showToast('Failed to create user: ' + error.message, 'error');
+    } finally {
+        // Reset button
+        const submitBtn = document.querySelector('#newUserModal button[type="submit"]');
+        submitBtn.innerHTML = 'Create User';
+        submitBtn.disabled = false;
+    }
+}
+
+// EDIT USER ROLE
+async function editUser(userId, currentRole) {
+    const newRole = prompt(`Change role for this user (admin/tanod):`, currentRole);
+    if (!newRole || (newRole !== 'admin' && newRole !== 'tanod')) {
+        showToast('Invalid role. Must be "admin" or "tanod"', 'error');
+        return;
+    }
+    
+    if (newRole === currentRole) {
+        showToast('No change made', 'info');
+        return;
+    }
+    
+    try {
+        const supabaseAdmin = getSupabaseClient(true);
+        if (!supabaseAdmin) throw new Error('Admin client not available');
+
+        const { error } = await supabaseAdmin
+            .from('users')
+            .update({ role: newRole })
+            .eq('user_id', userId);
+
+        if (error) throw error;
+
+        showToast('User role updated successfully!', 'success');
+        loadAllUsers();
+        
+    } catch (error) {
+        console.error('Error updating user:', error);
+        showToast('Failed to update user: ' + error.message, 'error');
+    }
+}
+
+// DELETE USER
+async function deleteUser(userId, authId) {
+    if (!confirm('⚠️ Are you sure you want to delete this user?\n\nThis will permanently delete their account and all associated data. This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const supabaseAdmin = getSupabaseClient(true);
+        if (!supabaseAdmin) throw new Error('Admin client not available');
+
+        // First delete from users table (will cascade to reports/alerts if set up)
+        const { error: profileError } = await supabaseAdmin
+            .from('users')
+            .delete()
+            .eq('user_id', userId);
+
+        if (profileError) throw profileError;
+
+        // Then delete from auth.users
+        const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(authId);
+        if (authError) throw authError;
+
+        showToast('User deleted successfully!', 'success');
+        loadAllUsers();
+        
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        showToast('Failed to delete user: ' + error.message, 'error');
+    }
+}
+
+// Load cameras from database
+async function loadCameras() {
+    try {
+        const supabase = getSupabaseClient(false);
+        if (!supabase) return;
+
+        const { data: cameras, error } = await supabase
+            .from('cctv')
+            .select('*')
+            .order('camera_id', { ascending: true });
+
+        if (error) throw error;
+        
+        settingsData.cameras = cameras || [];
+        renderCamerasList(cameras || []);
+        updateCameraStats(cameras || []);
+        
+    } catch (error) {
+        console.error('Error loading cameras:', error);
+    }
+}
+
+// Render cameras list
+function renderCamerasList(cameras) {
+    const container = document.getElementById('camerasList');
+    if (!container) return;
+    
+    if (cameras.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-8 text-gray-500">
+                <i class="fas fa-video-slash text-3xl mb-2"></i>
+                <p>No cameras configured</p>
+                <button onclick="showAddCameraModal()" class="mt-3 text-sky hover:text-sky/80">
+                    Add your first camera
+                </button>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = cameras.map(camera => {
+        const lastSeen = camera.last_online ? timeAgo(new Date(camera.last_online)) : 'Never';
+        const statusDot = camera.status === 'Active' ? 'bg-greenlight' : 'bg-alert';
+        
+        return `
+            <div class="flex items-center justify-between p-4 bg-darkbg rounded-lg">
+                <div class="flex items-center gap-4">
+                    <div class="w-2 h-2 rounded-full ${statusDot}"></div>
+                    <div>
+                        <p class="font-medium text-white">${camera.location_name || `Camera ${camera.camera_id}`}</p>
+                        <p class="text-xs text-gray-400">
+                            IP: ${camera.ip_address || 'N/A'} • 
+                            Status: ${camera.status || 'Unknown'} • 
+                            Last seen: ${lastSeen}
+                        </p>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="editCamera(${camera.camera_id}, '${camera.location_name}', '${camera.ip_address || ''}', '${camera.status}')" class="text-sky hover:text-sky/80 px-2">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button onclick="deleteCamera(${camera.camera_id})" class="text-alert hover:text-alert/80 px-2">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Update camera stats
+function updateCameraStats(cameras) {
+    const totalCameras = cameras.length;
+    const activeCameras = cameras.filter(c => c.status === 'Active').length;
+    const inactiveCameras = cameras.filter(c => c.status !== 'Active').length;
+    
+    document.getElementById('totalCameras').textContent = totalCameras;
+    document.getElementById('activeCameras').textContent = activeCameras;
+    document.getElementById('inactiveCameras').textContent = inactiveCameras;
+}
+
+// Add camera
+async function addCamera() {
+    const location = document.getElementById('cameraLocation').value;
+    const ip = document.getElementById('cameraIp').value;
+    const status = document.getElementById('cameraStatus').value;
+    
+    if (!location) {
+        showToast('Please enter camera location', 'error');
+        return;
+    }
+    
+    try {
+        const supabase = getSupabaseClient(false);
+        if (!supabase) throw new Error('Database connection failed');
+
+        const { error } = await supabase
+            .from('cctv')
+            .insert({
+                location_name: location,
+                ip_address: ip || null,
+                status: status,
+                managed_by: settingsData.user?.user_id
+            });
+
+        if (error) throw error;
+
+        // Clear and close modal
+        document.getElementById('cameraLocation').value = '';
+        document.getElementById('cameraIp').value = '';
+        document.getElementById('cameraStatus').value = 'Active';
+        closeModal('addCameraModal');
+        
+        showToast('Camera added successfully!', 'success');
+        loadCameras();
+        
+    } catch (error) {
+        console.error('Error adding camera:', error);
+        showToast('Failed to add camera: ' + error.message, 'error');
+    }
+}
+
+// Edit camera
+async function editCamera(cameraId, currentLocation, currentIp, currentStatus) {
+    const newLocation = prompt('Edit camera location:', currentLocation);
+    if (!newLocation) return;
+    
+    const newIp = prompt('Edit IP address:', currentIp || '');
+    const newStatus = prompt('Edit status (Active/Inactive):', currentStatus || 'Active');
+    
+    if (newStatus !== 'Active' && newStatus !== 'Inactive') {
+        showToast('Status must be "Active" or "Inactive"', 'error');
+        return;
+    }
+    
+    try {
+        const supabase = getSupabaseClient(false);
+        if (!supabase) throw new Error('Database connection failed');
+
+        const { error } = await supabase
+            .from('cctv')
+            .update({
+                location_name: newLocation,
+                ip_address: newIp || null,
+                status: newStatus
+            })
+            .eq('camera_id', cameraId);
+
+        if (error) throw error;
+
+        showToast('Camera updated successfully!', 'success');
+        loadCameras();
+        
+    } catch (error) {
+        console.error('Error updating camera:', error);
+        showToast('Failed to update camera: ' + error.message, 'error');
+    }
+}
+
+// Delete camera
+async function deleteCamera(cameraId) {
+    if (!confirm('Are you sure you want to delete this camera? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const supabase = getSupabaseClient(false);
+        if (!supabase) throw new Error('Database connection failed');
+
+        const { error } = await supabase
+            .from('cctv')
+            .delete()
+            .eq('camera_id', cameraId);
+
+        if (error) throw error;
+
+        showToast('Camera deleted successfully!', 'success');
+        loadCameras();
+        
+    } catch (error) {
+        console.error('Error deleting camera:', error);
+        showToast('Failed to delete camera: ' + error.message, 'error');
+    }
+}
+
+// Load system stats
+async function loadSystemStats() {
+    try {
+        const supabase = getSupabaseClient(false);
+        if (!supabase) return;
+
+        // Get counts from tables
+        const { count: incidentCount } = await supabase
+            .from('accident_detections')
+            .select('*', { count: 'exact', head: true });
+
+        const { count: reportCount } = await supabase
+            .from('reports')
+            .select('*', { count: 'exact', head: true });
+
+        const { count: alertCount } = await supabase
+            .from('alerts')
+            .select('*', { count: 'exact', head: true });
+
+        // Update stats
+        document.getElementById('statTotalIncidents').textContent = incidentCount || 0;
+        document.getElementById('statTotalReports').textContent = reportCount || 0;
+        document.getElementById('statTotalAlerts').textContent = alertCount || 0;
+        
+    } catch (error) {
+        console.error('Error loading system stats:', error);
+    }
+}
+
+// Profile update handler
+async function updateProfile(event) {
+    event.preventDefault();
+    
+    try {
+        const supabase = getSupabaseClient(false);
+        if (!supabase) throw new Error('Database connection failed');
+
+        const authId = "{{ request.session.supabase_user.id }}";
+        const firstName = document.getElementById('firstName').value;
+        const lastName = document.getElementById('lastName').value;
+
+        const { error } = await supabase
+            .from('users')
+            .update({
+                first_name: firstName,
+                last_name: lastName
+            })
+            .eq('auth_id', authId);
+
+        if (error) throw error;
+
+        showToast('Profile updated successfully!', 'success');
+        loadUserData(); // Refresh
+        
+    } catch (error) {
+        console.error('Error updating profile:', error);
+        showToast('Failed to update profile: ' + error.message, 'error');
+    }
+}
+
+// Password change handler
+async function changePassword(event) {
+    event.preventDefault();
+    
+    const currentPass = document.getElementById('currentPassword').value;
+    const newPass = document.getElementById('newPassword').value;
+    const confirmPass = document.getElementById('confirmPassword').value;
+
+    if (newPass !== confirmPass) {
+        showToast('New passwords do not match', 'error');
+        return;
+    }
+
+    if (newPass.length < 6) {
+        showToast('Password must be at least 6 characters', 'error');
+        return;
+    }
+
+    try {
+        const supabase = getSupabaseClient(false);
+        if (!supabase) throw new Error('Database connection failed');
+
+        // First verify current password
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: settingsData.user?.email,
+            password: currentPass
+        });
+
+        if (signInError) {
+            showToast('Current password is incorrect', 'error');
+            return;
+        }
+
+        // Update password
+        const { error } = await supabase.auth.updateUser({
+            password: newPass
+        });
+
+        if (error) throw error;
+
+        showToast('Password changed successfully!', 'success');
+        document.getElementById('passwordForm').reset();
+        
+    } catch (error) {
+        console.error('Error changing password:', error);
+        showToast('Failed to change password: ' + error.message, 'error');
+    }
+}
+
+// Modal controls
+function showNewUserModal() {
+    document.getElementById('newUserModal').classList.remove('hidden');
+}
+
+function showAddCameraModal() {
+    document.getElementById('addCameraModal').classList.remove('hidden');
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.add('hidden');
+}
+
+// Time ago formatter
+function timeAgo(date) {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+}
+
+// Show toast message
+function showToast(message, type = 'success') {
+    if (window.showToast) {
+        window.showToast(message, type);
+    } else {
+        alert(message);
+    }
+}
+</script>
+{% endblock %}
+
 {% block content %}
-<div class="mb-6">
+<div class="mb-8">
     <h2 class="text-2xl font-bold flex items-center gap-2">
-        <i class="bi bi-gear text-sky"></i> System Settings
+        <i class="fas fa-cog text-sky"></i> Settings
     </h2>
-    <p class="text-gray-400 mt-2">Configure system preferences and user management</p>
+    <p class="text-gray-400 mt-2">Manage your account and system configuration</p>
 </div>
 
-<div class="bg-[#1E293B] rounded-xl p-8 text-center">
-    <i class="bi bi-gear text-6xl text-gray-500 mb-4"></i>
-    <h3 class="text-2xl font-bold text-gray-400 mb-2">System Settings</h3>
-    <p class="text-gray-500 text-lg">System configuration features coming soon...</p>
-    <div class="mt-6 flex justify-center gap-4">
-        <div class="text-center">
-            <i class="bi bi-bell text-sky text-2xl mb-2"></i>
-            <p class="text-sm text-gray-400">Notifications</p>
+<!-- Settings Navigation Tabs -->
+<div class="bg-[#1E293B] rounded-xl p-4 border border-gray-600 mb-6">
+    <div class="flex flex-wrap gap-3">
+        <button class="settings-tab-btn px-6 py-2.5 rounded-lg bg-sky text-white font-medium" data-tab="profile">
+            <i class="fas fa-user mr-2"></i> Profile
+        </button>
+        <button class="settings-tab-btn px-6 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium" data-tab="account">
+            <i class="fas fa-lock mr-2"></i> Account
+        </button>
+        <button class="settings-tab-btn px-6 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium admin-only hidden" data-tab="users">
+            <i class="fas fa-users mr-2"></i> User Management
+        </button>
+        <button class="settings-tab-btn px-6 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium admin-only hidden" data-tab="cameras">
+            <i class="fas fa-video mr-2"></i> Cameras
+        </button>
+        <button class="settings-tab-btn px-6 py-2.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 font-medium" data-tab="system">
+            <i class="fas fa-server mr-2"></i> System
+        </button>
+    </div>
+</div>
+
+<!-- PROFILE TAB -->
+<div id="profileTab" class="settings-tab">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Profile Picture Card -->
+        <div class="bg-[#1E293B] rounded-xl border border-gray-600 p-6">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                <i class="fas fa-camera text-sky"></i> Profile
+            </h3>
+            <div class="flex flex-col items-center">
+                <div class="w-32 h-32 rounded-full bg-gradient-to-br from-sky to-blue-600 flex items-center justify-center mb-4">
+                    <span id="userInitials" class="text-4xl font-bold text-white">AD</span>
+                </div>
+                <p class="text-sm text-gray-400 text-center">
+                    Logged in as <span id="userRoleDisplay" class="text-sky font-medium"></span>
+                </p>
+            </div>
         </div>
-        <div class="text-center">
-            <i class="bi bi-sliders text-greenlight text-2xl mb-2"></i>
-            <p class="text-sm text-gray-400">Preferences</p>
+
+        <!-- Personal Information Card -->
+        <div class="bg-[#1E293B] rounded-xl border border-gray-600 p-6 lg:col-span-2">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                <i class="fas fa-id-card text-sky"></i> Personal Information
+            </h3>
+            
+            <form id="profileForm" onsubmit="updateProfile(event)">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">First Name</label>
+                        <input type="text" id="firstName" value="" 
+                               class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Last Name</label>
+                        <input type="text" id="lastName" value="" 
+                               class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky focus:outline-none">
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-400 mb-2">Email Address</label>
+                    <input type="email" id="userEmail" value="" disabled
+                           class="w-full bg-darkbg/50 border border-gray-600 rounded-lg px-4 py-2.5 text-gray-400 cursor-not-allowed">
+                    <p class="text-xs text-gray-500 mt-1">Email cannot be changed</p>
+                </div>
+                
+                <div class="flex justify-end">
+                    <button type="submit" class="bg-sky hover:bg-sky/80 text-white px-6 py-2.5 rounded-lg transition">
+                        <i class="fas fa-save mr-2"></i> Save Changes
+                    </button>
+                </div>
+            </form>
         </div>
-        <div class="text-center">
-            <i class="bi bi-shield-check text-gold text-2xl mb-2"></i>
-            <p class="text-sm text-gray-400">Security</p>
+    </div>
+</div>
+
+<!-- ACCOUNT TAB -->
+<div id="accountTab" class="settings-tab hidden">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Change Password Card -->
+        <div class="bg-[#1E293B] rounded-xl border border-gray-600 p-6">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                <i class="fas fa-key text-sky"></i> Change Password
+            </h3>
+            
+            <form id="passwordForm" onsubmit="changePassword(event)">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-400 mb-2">Current Password</label>
+                    <input type="password" id="currentPassword" placeholder="Enter current password" 
+                           class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky focus:outline-none" required>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-400 mb-2">New Password</label>
+                    <input type="password" id="newPassword" placeholder="Enter new password" 
+                           class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky focus:outline-none" required>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-400 mb-2">Confirm New Password</label>
+                    <input type="password" id="confirmPassword" placeholder="Confirm new password" 
+                           class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky focus:outline-none" required>
+                </div>
+                
+                <div class="flex justify-end">
+                    <button type="submit" class="bg-sky hover:bg-sky/80 text-white px-6 py-2.5 rounded-lg transition">
+                        <i class="fas fa-sync-alt mr-2"></i> Update Password
+                    </button>
+                </div>
+            </form>
         </div>
-        <div class="text-center">
-            <i class="bi bi-person-circle text-alert text-2xl mb-2"></i>
-            <p class="text-sm text-gray-400">Account</p>
+
+        <!-- Session Info Card -->
+        <div class="bg-[#1E293B] rounded-xl border border-gray-600 p-6">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                <i class="fas fa-shield-alt text-sky"></i> Security
+            </h3>
+            
+            <div class="space-y-4">
+                <div class="p-4 bg-darkbg rounded-lg">
+                    <p class="text-sm text-gray-400">Current Session</p>
+                    <p class="text-white font-medium mt-1">Active since {{ request.session.created_at|default:'Today' }}</p>
+                </div>
+                
+                <div class="p-4 bg-gold/10 border border-gold/30 rounded-lg">
+                    <p class="text-xs text-gold flex items-center gap-2">
+                        <i class="fas fa-info-circle"></i>
+                        Password must be at least 6 characters
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- USER MANAGEMENT TAB (Admin Only) -->
+<div id="usersTab" class="settings-tab hidden admin-only">
+    <div class="bg-[#1E293B] rounded-xl border border-gray-600 p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+                <i class="fas fa-users text-sky"></i> User Management
+            </h3>
+            <button onclick="showNewUserModal()" class="bg-sky hover:bg-sky/80 text-white px-4 py-2 rounded-lg transition">
+                <i class="fas fa-user-plus mr-2"></i> Add New User
+            </button>
+        </div>
+        
+        <!-- User Stats -->
+        <div class="grid grid-cols-3 gap-4 mb-6">
+            <div class="bg-darkbg p-4 rounded-lg text-center">
+                <p class="text-2xl font-bold text-sky" id="totalUsers">0</p>
+                <p class="text-xs text-gray-400">Total Users</p>
+            </div>
+            <div class="bg-darkbg p-4 rounded-lg text-center">
+                <p class="text-2xl font-bold text-sky" id="adminCount">0</p>
+                <p class="text-xs text-gray-400">Admins</p>
+            </div>
+            <div class="bg-darkbg p-4 rounded-lg text-center">
+                <p class="text-2xl font-bold text-gold" id="tanodCount">0</p>
+                <p class="text-xs text-gray-400">Tanods</p>
+            </div>
+        </div>
+        
+        <!-- Users Table -->
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-darkbg/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">ID</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Name</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Email</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Role</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Created</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-400">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                    <tr><td colspan="6" class="text-center py-8 text-gray-500">Loading users...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- CAMERAS TAB (Admin Only) -->
+<div id="camerasTab" class="settings-tab hidden admin-only">
+    <div class="bg-[#1E293B] rounded-xl border border-gray-600 p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+                <i class="fas fa-video text-sky"></i> Camera Management
+            </h3>
+            <button onclick="showAddCameraModal()" class="bg-sky hover:bg-sky/80 text-white px-4 py-2 rounded-lg transition">
+                <i class="fas fa-plus mr-2"></i> Add Camera
+            </button>
+        </div>
+        
+        <!-- Camera Stats -->
+        <div class="grid grid-cols-3 gap-4 mb-6">
+            <div class="bg-darkbg p-4 rounded-lg text-center">
+                <p class="text-2xl font-bold text-sky" id="totalCameras">0</p>
+                <p class="text-xs text-gray-400">Total Cameras</p>
+            </div>
+            <div class="bg-darkbg p-4 rounded-lg text-center">
+                <p class="text-2xl font-bold text-greenlight" id="activeCameras">0</p>
+                <p class="text-xs text-gray-400">Active</p>
+            </div>
+            <div class="bg-darkbg p-4 rounded-lg text-center">
+                <p class="text-2xl font-bold text-alert" id="inactiveCameras">0</p>
+                <p class="text-xs text-gray-400">Inactive</p>
+            </div>
+        </div>
+        
+        <!-- Camera List -->
+        <div id="camerasList" class="space-y-3">
+            <div class="text-center py-8 text-gray-500">
+                <i class="fas fa-spinner fa-spin text-2xl"></i>
+                <p class="mt-2">Loading cameras...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SYSTEM TAB -->
+<div id="systemTab" class="settings-tab hidden">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- System Status -->
+        <div class="bg-[#1E293B] rounded-xl border border-gray-600 p-6">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                <i class="fas fa-heartbeat text-sky"></i> Database Statistics
+            </h3>
+            
+            <div class="space-y-3">
+                <div class="flex justify-between items-center p-3 bg-darkbg rounded-lg">
+                    <span class="text-sm">Total Incidents</span>
+                    <span id="statTotalIncidents" class="text-sky font-medium">0</span>
+                </div>
+                <div class="flex justify-between items-center p-3 bg-darkbg rounded-lg">
+                    <span class="text-sm">Total Reports</span>
+                    <span id="statTotalReports" class="text-greenlight font-medium">0</span>
+                </div>
+                <div class="flex justify-between items-center p-3 bg-darkbg rounded-lg">
+                    <span class="text-sm">Total Alerts</span>
+                    <span id="statTotalAlerts" class="text-gold font-medium">0</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Connection Info -->
+        <div class="bg-[#1E293B] rounded-xl border border-gray-600 p-6">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                <i class="fas fa-plug text-sky"></i> Connection
+            </h3>
+            
+            <div class="space-y-3">
+                <div class="flex justify-between items-center p-3 bg-darkbg rounded-lg">
+                    <span class="text-sm">Database</span>
+                    <span class="text-greenlight flex items-center gap-1">
+                        <i class="fas fa-circle text-[8px]"></i> Connected
+                    </span>
+                </div>
+                <div class="flex justify-between items-center p-3 bg-darkbg rounded-lg">
+                    <span class="text-sm">Supabase URL</span>
+                    <span class="text-xs text-gray-400">{{ SUPABASE_URL|default:'configured' }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- New User Modal -->
+<div id="newUserModal" class="hidden fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
+    <div class="bg-[#1E293B] rounded-xl max-w-md w-full border border-gray-600">
+        <div class="p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-white">Create New User</h3>
+                <button onclick="closeModal('newUserModal')" class="text-gray-400 hover:text-white">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form id="newUserForm" onsubmit="createUser(event)">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">First Name</label>
+                        <input type="text" id="newUserFirstName" required
+                               class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Last Name</label>
+                        <input type="text" id="newUserLastName" required
+                               class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Email</label>
+                        <input type="email" id="newUserEmail" required
+                               class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Password</label>
+                        <input type="password" id="newUserPassword" required minlength="6"
+                               class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Role</label>
+                        <select id="newUserRole" class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white">
+                            <option value="tanod">Tanod</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="flex gap-3 mt-6">
+                    <button type="button" onclick="closeModal('newUserModal')"
+                            class="flex-1 bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg transition">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="flex-1 bg-sky hover:bg-sky/80 text-white px-4 py-2 rounded-lg transition">
+                        Create User
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Add Camera Modal -->
+<div id="addCameraModal" class="hidden fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
+    <div class="bg-[#1E293B] rounded-xl max-w-md w-full border border-gray-600">
+        <div class="p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-white">Add New Camera</h3>
+                <button onclick="closeModal('addCameraModal')" class="text-gray-400 hover:text-white">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form onsubmit="event.preventDefault(); addCamera();">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Location Name</label>
+                        <input type="text" id="cameraLocation" required
+                               class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky"
+                               placeholder="e.g., Main Entrance">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">IP Address (optional)</label>
+                        <input type="text" id="cameraIp"
+                               class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:border-sky"
+                               placeholder="192.168.1.100">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Status</label>
+                        <select id="cameraStatus" class="w-full bg-darkbg border border-gray-600 rounded-lg px-4 py-2.5 text-white">
+                            <option value="Active">Active</option>
+                            <option value="Inactive">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="flex gap-3 mt-6">
+                    <button type="button" onclick="closeModal('addCameraModal')"
+                            class="flex-1 bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg transition">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="flex-1 bg-sky hover:bg-sky/80 text-white px-4 py-2 rounded-lg transition">
+                        Add Camera
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
