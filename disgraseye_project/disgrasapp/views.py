@@ -21,7 +21,8 @@ from supabase import create_client
 from .decorators import login_required
 from wsgiref.util import FileWrapper
 import mimetypes
-
+from collections import defaultdict
+import queue
 
 # Load your trained model
 model_path = os.path.join(settings.BASE_DIR, 'best.pt')
@@ -142,9 +143,16 @@ def cctv_monitoring(request):
 
 @login_required
 def live_monitoring(request):
+    global current_rtsp_url
+    
     supabase_user = request.session.get('supabase_user', {})
     supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
     
+    # Get RTSP URL
+    if not current_rtsp_url:
+        current_rtsp_url = request.session.get('current_rtsp_url', '')
+    
+    # Get user profile
     try:
         profile = supabase.table('users')\
             .select('user_id, first_name, last_name, role')\
@@ -185,9 +193,9 @@ def live_monitoring(request):
         "SUPABASE_URL": settings.SUPABASE_URL,
         "SUPABASE_ANON_KEY": settings.SUPABASE_ANON_KEY,
         "SUPABASE_SERVICE_ROLE_KEY": settings.SUPABASE_SERVICE_ROLE_KEY,
-        "user": user_data 
+        "RTSP_URL": current_rtsp_url,
+        "user": user_data
     })
-
 @login_required
 def reports(request):
     supabase_user = request.session.get('supabase_user', {})
@@ -541,18 +549,7 @@ def get_rtsp_status(request):
     
     return JsonResponse({'rtsp_url': current_rtsp_url})
 
-@login_required
-def live_monitoring(request):
-    """Live monitoring dashboard with dynamic RTSP URL input"""
-    global current_rtsp_url
-    
-    # Get current RTSP URL from session if available
-    if not current_rtsp_url:
-        current_rtsp_url = request.session.get('current_rtsp_url', '')
-    
-    return render(request, 'dashboard/live_monitoring.html', {
-        'RTSP_URL': current_rtsp_url
-    })
+
 
 # =============================================================================
 # FIXED VIDEO UPLOAD AND PROCESSING FUNCTIONS
@@ -834,6 +831,14 @@ def process_video(video_upload):
         video_upload.processing_complete = True
         video_upload.save()
         
+                # ✅ ADD THIS: Send Supabase notification if crash detected
+        if final_crash_detected:
+            send_crash_alert_to_supabase(
+                accident_id=video_upload.id,
+                location=f"Uploaded video: {os.path.basename(input_video_path)}"
+            )
+        
+    
         return {
             'crash_detected': final_crash_detected,
             'frames_processed': frame_count,
@@ -1120,7 +1125,7 @@ def generate_camera_frames(camera_id, rtsp_url):
             
             # Resize for performance
             frame = cv2.resize(frame, (640, 480))
-            display_frame = frame.copy()  # Frame to display (may be annotated)
+            display_frame = frame.copy()
             
             # Check if AI is enabled for this camera
             ai_enabled = active_camera_streams.get(camera_id, {}).get('ai_enabled', False)
@@ -1148,13 +1153,11 @@ def generate_camera_frames(camera_id, rtsp_url):
                         
                         for box in results[0].boxes:
                             x1, y1, x2, y2 = box.xyxy[0].tolist()
-                            # Scale coordinates
                             x1, x2 = int(x1 * scale_x), int(x2 * scale_x)
                             y1, y2 = int(y1 * scale_y), int(y2 * scale_y)
                             
-                            # Draw bounding box on display frame
                             cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                            cv2.putText(display_frame, "🚨 CRASH", (x1, y1-10),
+                            cv2.putText(display_frame, "CRASH", (x1, y1-10),
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
                 
                 # Update detection status
@@ -1165,15 +1168,75 @@ def generate_camera_frames(camera_id, rtsp_url):
                             'timestamp': time.time()
                         }
                 
+                # ✅ SEND SUPABASE ALERT IF CRASH DETECTED (with 30s cooldown)
+                if crash_detected:
+                    last_alert = active_camera_streams.get(camera_id, {}).get('last_alert_time', 0)
+                    
+                    if time.time() - last_alert > 30:
+                        # Update cooldown immediately to prevent duplicate alerts
+                        with stream_lock:
+                            if camera_id in active_camera_streams:
+                                active_camera_streams[camera_id]['last_alert_time'] = time.time()
+                        
+                        # Run in background so it doesn't block the video stream
+                        def send_cctv_crash_alert(cam_id):
+                            try:
+                                from supabase import create_client
+                                admin_client = create_client(
+                                    settings.SUPABASE_URL,
+                                    settings.SUPABASE_SERVICE_ROLE_KEY
+                                )
+                                
+                                # 1. Create accident detection record
+                                accident_response = admin_client\
+                                    .table('accident_detections')\
+                                    .insert({
+                                        'camera_id': int(cam_id),
+                                        'detection_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                                        'status': 'Pending'
+                                    }).execute()
+                                
+                                if not accident_response.data:
+                                    print(f"❌ Failed to create accident record for camera {cam_id}")
+                                    return
+                                
+                                new_accident_id = accident_response.data[0]['accident_id']
+                                cam_name = active_camera_streams.get(cam_id, {}).get('camera_name', f'Camera {cam_id}')
+                                
+                                # 2. Get all admins
+                                admins = admin_client\
+                                    .table('users')\
+                                    .select('user_id')\
+                                    .eq('role', 'admin')\
+                                    .execute()
+                                
+                                # 3. Send alert to each admin
+                                if admins.data:
+                                    alerts = [{
+                                        'detection_id': new_accident_id,
+                                        'sent_to': admin['user_id'],
+                                        'message': f'🚨 Crash detected on {cam_name}',
+                                        'response_status': 'Unacknowledged',
+                                        'alert_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                                    } for admin in admins.data]
+                                    
+                                    admin_client.table('alerts').insert(alerts).execute()
+                                    print(f"✅ Alert sent for camera {cam_id} to {len(admins.data)} admin(s)")
+                                    
+                            except Exception as e:
+                                print(f"❌ Failed to send crash alert: {e}")
+                        
+                        alert_thread = threading.Thread(target=send_cctv_crash_alert, args=(camera_id,))
+                        alert_thread.daemon = True
+                        alert_thread.start()
+                
                 # Add AI status text
-                status_text = "🚨 CRASH DETECTED!" if crash_detected else "🤖 AI ACTIVE"
+                status_text = "CRASH DETECTED!" if crash_detected else "AI ACTIVE"
                 status_color = (0, 0, 255) if crash_detected else (0, 255, 0)
                 cv2.putText(display_frame, status_text, (10, 30),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
             else:
-                # AI is OFF - just show plain video
-                # Optional: add a small "AI OFF" indicator
-                cv2.putText(display_frame, "⚫ AI OFF", (10, 30),
+                cv2.putText(display_frame, "AI OFF", (10, 30),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128, 128, 128), 1)
             
             # Encode frame to JPEG
@@ -1212,8 +1275,8 @@ def camera_stream(request, camera_id):
         return HttpResponse("Stream error", status=500)
 
 @login_required
+@login_required
 def start_camera_stream(request):
-    """Start video stream for a camera"""
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
@@ -1222,19 +1285,21 @@ def start_camera_stream(request):
             camera_name = data.get('camera_name', 'Camera')
             
             with stream_lock:
-                if camera_id in active_camera_streams:
-                    return JsonResponse({'error': 'Camera stream already running'}, status=400)
+                # ← If already running, just return success instead of erroring
+                if camera_id in active_camera_streams and active_camera_streams[camera_id].get('active'):
+                    return JsonResponse({
+                        'status': 'success',
+                        'message': f'Stream already running for {camera_name}',
+                        'stream_url': f'/camera-stream/{camera_id}/'
+                    })
                 
-                # Start camera stream with AI explicitly OFF
                 active_camera_streams[camera_id] = {
                     'rtsp_url': rtsp_url,
                     'camera_name': camera_name,
                     'active': True,
-                    'ai_enabled': False,  # ← Explicitly set to False
+                    'ai_enabled': False,
                     'last_detection': None
                 }
-                
-                print(f"🎥 Started stream for {camera_name} ({camera_id}) - AI: OFF")
                 
                 return JsonResponse({
                     'status': 'success',
@@ -1314,3 +1379,117 @@ def reports(request):
         'SUPABASE_URL': settings.SUPABASE_URL,
         'SUPABASE_ANON_KEY': settings.SUPABASE_ANON_KEY,
     })
+
+# At the top of views.py, add this helper function
+def send_crash_alert_to_supabase(accident_id, camera_id=None, location="Video Upload"):
+    """Send crash alert to all admins via Supabase"""
+    try:
+        from supabase import create_client
+        admin_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+        
+        # Create accident detection record
+        accident_data = {
+            'detection_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'status': 'Pending'
+        }
+        if camera_id:
+            accident_data['camera_id'] = camera_id
+            
+        accident_response = admin_client.table('accident_detections').insert(accident_data).execute()
+        
+        if not accident_response.data:
+            print("❌ Failed to create accident detection record")
+            return
+            
+        new_accident_id = accident_response.data[0]['accident_id']
+        
+        # Get all admins
+        admins = admin_client.table('users').select('user_id').eq('role', 'admin').execute()
+        
+        if admins.data:
+            alerts = [{
+                'detection_id': new_accident_id,
+                'sent_to': admin['user_id'],
+                'message': f'🚨 Crash detected in uploaded video at {location}',
+                'response_status': 'Unacknowledged',
+                'alert_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            } for admin in admins.data]
+            
+            admin_client.table('alerts').insert(alerts).execute()
+            print(f"✅ Crash alert sent to {len(admins.data)} admin(s)")
+        else:
+            print("⚠️ No admins found to notify")
+            
+    except Exception as e:
+        print(f"❌ Error sending crash alert: {e}")
+
+def get_active_streams(request):
+    """Return which cameras are currently streaming and their AI state"""
+    with stream_lock:
+        active = {
+            cam_id: {
+                'active': data.get('active', False),
+                'ai_enabled': data.get('ai_enabled', False),
+            }
+            for cam_id, data in active_camera_streams.items()
+            if data.get('active', False)
+        }
+    return JsonResponse({'active_streams': active})
+
+@login_required
+def mock_test_camera(request):
+    """Send a mock crash alert for a specific camera"""
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            camera_id = data.get('camera_id')
+            camera_name = data.get('camera_name')
+            ip_address = data.get('ip_address')
+            
+            from supabase import create_client
+            admin_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+            
+            # Create a mock accident detection record
+            accident_response = admin_client.table('accident_detections').insert({
+                'camera_id': int(camera_id),
+                'detection_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                'status': 'Pending'
+            }).execute()
+            
+            if not accident_response.data:
+                return JsonResponse({'error': 'Failed to create mock accident record'}, status=500)
+            
+            new_accident_id = accident_response.data[0]['accident_id']
+            
+            # Get all admins
+            admins = admin_client.table('users').select('user_id').eq('role', 'admin').execute()
+            
+            if admins.data:
+                alerts = [{
+                    'detection_id': new_accident_id,
+                    'sent_to': admin['user_id'],
+                    'message': f'🧪 [MOCK TEST] Crash detected on {camera_name} | IP: {ip_address} | Camera ID: {camera_id}',
+                    'response_status': 'Unacknowledged',
+                    'alert_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                } for admin in admins.data]
+                
+                admin_client.table('alerts').insert(alerts).execute()
+                
+                return JsonResponse({
+                    'status': 'success',
+                    'message': f'Mock test alert sent for {camera_name}',
+                    'details': {
+                        'camera_id': camera_id,
+                        'camera_name': camera_name,
+                        'ip_address': ip_address,
+                        'admins_notified': len(admins.data),
+                        'accident_id': new_accident_id
+                    }
+                })
+            else:
+                return JsonResponse({'error': 'No admins found to notify'}, status=404)
+                
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+    
+    return JsonResponse({'error': 'Invalid request method'}, status=405)

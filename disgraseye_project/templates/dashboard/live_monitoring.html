@@ -326,7 +326,7 @@
                         <label class="block text-sm font-medium text-gray-400 mb-2">RTSP Stream URL</label>
                         <input type="text" 
                                id="rtspUrlInput" 
-                               placeholder="rtsp://192.168.1.100:554/stream"
+                               placeholder="rtsp://192.168.1.227:8080/h264.sdp"
                                class="w-full px-4 py-3 bg-darkbg border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-sky focus:ring-1 focus:ring-sky transition"
                                value="rtsp://192.168.1.183:8080/h264.sdp">
                         <p class="text-xs text-gray-500 mt-2">
@@ -339,7 +339,7 @@
                         <label class="block text-sm font-medium text-gray-400 mb-2">Quick Presets:</label>
                         <div class="flex flex-wrap gap-2">
                             <button class="text-xs bg-darkbg hover:bg-sky/20 text-gray-300 px-3 py-1 rounded border border-gray-600 transition hover:border-sky"
-                                    onclick="setPresetUrl('rtsp://192.168.1.100:554/stream')">
+                                    onclick="setPresetUrl('rtsp://192.168.1.227:8080/h264.sdp')">
                                 Local IP Cam
                             </button>
                             <button class="text-xs bg-darkbg hover:bg-sky/20 text-gray-300 px-3 py-1 rounded border border-gray-600 transition hover:border-sky"
@@ -478,21 +478,19 @@
                 </div>
             </div>
             
-            <!-- Tips -->
-            <div class="bg-cardbg rounded-xl p-6 border border-gray-600">
-                <h3 class="text-lg font-bold mb-3 flex items-center gap-2">
-                    <i class="bi bi-lightbulb text-gold"></i> Upload Tips
-                </h3>
-                <ul class="space-y-2 text-sm text-gray-400">
-                    <li>• Videos are processed in the background</li>
-                    <li>• You can continue using live monitoring</li>
-                    <li>• Results appear in History tab</li>
-                    <li>• Processed videos can be downloaded</li>
-                </ul>
-            </div>
-        </div>
-    </div>
+            <!-- Test Crash Alert Button -->
+<div class="bg-cardbg rounded-xl p-6 border border-gray-600">
+    <h3 class="text-lg font-bold mb-3 flex items-center gap-2">
+        <i class="bi bi-lightning-charge text-gold"></i> Test Alert
+    </h3>
+    <p class="text-sm text-gray-400 mb-4">Simulate a crash detection to test the notification system.</p>
+    <button id="testCrashBtn" onclick="sendTestCrashAlert()"
+            class="w-full bg-alert hover:bg-alert/80 text-white py-3 rounded-lg transition flex items-center justify-center gap-2 font-semibold">
+        <i class="bi bi-exclamation-triangle"></i> Simulate Crash Detected
+    </button>
+    <p id="testCrashStatus" class="text-xs text-center mt-2 text-gray-500"></p>
 </div>
+
 
 <!-- History Tab -->
 <div class="tab-pane" id="tab-history">
@@ -511,65 +509,7 @@
     </div>
 </div>
 
-<!-- How It Works Section (shown in live tab only) -->
-<div class="mt-8 bg-cardbg rounded-xl p-6 border border-gray-600" id="howItWorks">
-    <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
-        <i class="bi bi-question-circle text-sky"></i> Connection Tips
-    </h3>
-    
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-            <ul class="space-y-3">
-                <li class="flex items-start gap-3">
-                    <span class="text-sky text-lg">🔗</span>
-                    <div>
-                        <strong class="text-graylight">Check Network</strong>
-                        <p class="text-gray-400 text-sm">Ensure your device and camera are on the same network</p>
-                    </div>
-                </li>
-                <li class="flex items-start gap-3">
-                    <span class="text-sky text-lg">📱</span>
-                    <div>
-                        <strong class="text-graylight">IP Webcam App</strong>
-                        <p class="text-gray-400 text-sm">Use IP Webcam app on Android with RTSP server enabled</p>
-                    </div>
-                </li>
-                <li class="flex items-start gap-3">
-                    <span class="text-sky text-lg">🔧</span>
-                    <div>
-                        <strong class="text-graylight">Firewall Settings</strong>
-                        <p class="text-gray-400 text-sm">Check if firewall is blocking the connection</p>
-                    </div>
-                </li>
-            </ul>
-        </div>
-        <div>
-            <ul class="space-y-3">
-                <li class="flex items-start gap-3">
-                    <span class="text-sky text-lg">🌐</span>
-                    <div>
-                        <strong class="text-graylight">Port Forwarding</strong>
-                        <p class="text-gray-400 text-sm">For remote access, configure port forwarding on router</p>
-                    </div>
-                </li>
-                <li class="flex items-start gap-3">
-                    <span class="text-sky text-lg">📹</span>
-                    <div>
-                        <strong class="text-graylight">Camera Settings</strong>
-                        <p class="text-gray-400 text-sm">Verify RTSP is enabled in camera settings</p>
-                    </div>
-                </li>
-                <li class="flex items-start gap-3">
-                    <span class="text-sky text-lg">🔄</span>
-                    <div>
-                        <strong class="text-graylight">Restart Services</strong>
-                        <p class="text-gray-400 text-sm">Try restarting camera and app if connection fails</p>
-                    </div>
-                </li>
-            </ul>
-        </div>
-    </div>
-</div>
+
 
 <!-- Video Results Modal -->
 <div class="video-modal" id="videoModal">
@@ -1252,5 +1192,80 @@
     });
     
     console.log("🔴 LIVE DETECTION: Script finished");
+
+    async function sendTestCrashAlert() {
+    const btn = document.getElementById('testCrashBtn');
+    const status = document.getElementById('testCrashStatus');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+    status.textContent = '';
+
+    try {
+        // Create admin client directly using template variables
+        const SERVICE_KEY = "{{ SUPABASE_SERVICE_ROLE_KEY|escapejs }}";
+        const URL = "{{ SUPABASE_URL }}";
+        
+        console.log("Service key exists?", !!SERVICE_KEY);
+        console.log("URL:", URL);
+        
+        if (!SERVICE_KEY || SERVICE_KEY === '') {
+            throw new Error('Service role key not available in template');
+        }
+
+        // Create client directly - don't rely on base.html function
+        const adminClient = supabase.createClient(URL, SERVICE_KEY);
+
+        // 1. Create accident detection record
+        const accidentRes = await adminClient
+            .from('accident_detections')
+            .insert({
+                detection_time: new Date().toISOString(),
+                status: 'Pending'
+            })
+            .select()
+            .single();
+
+        if (accidentRes.error) throw accidentRes.error;
+        const accidentId = accidentRes.data.accident_id;
+
+        // 2. Get all admins
+        const adminsRes = await adminClient
+            .from('users')
+            .select('user_id')
+            .eq('role', 'admin');
+
+        if (adminsRes.error) throw adminsRes.error;
+
+        // 3. Insert alert for each admin
+        if (adminsRes.data && adminsRes.data.length > 0) {
+            const alerts = adminsRes.data.map(admin => ({
+                detection_id: accidentId,
+                sent_to: admin.user_id,
+                message: '🚨 [TEST] Crash detected in uploaded video simulation',
+                response_status: 'Unacknowledged',
+                alert_time: new Date().toISOString()
+            }));
+
+            const alertRes = await adminClient.from('alerts').insert(alerts);
+            if (alertRes.error) throw alertRes.error;
+
+            status.textContent = `✅ Alert sent to ${adminsRes.data.length} admin(s)`;
+            status.className = 'text-xs text-center mt-2 text-greenlight';
+            showNotification('Test crash alert sent!', 'success');
+        } else {
+            status.textContent = '⚠️ No admins found';
+            status.className = 'text-xs text-center mt-2 text-gold';
+        }
+
+    } catch (err) {
+        console.error('Test alert error:', err);
+        status.textContent = '❌ Failed: ' + err.message;
+        status.className = 'text-xs text-center mt-2 text-alert';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Simulate Crash Detected';
+    }
+}
 </script>
 {% endblock %}

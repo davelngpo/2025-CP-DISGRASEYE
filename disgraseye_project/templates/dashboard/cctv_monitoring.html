@@ -175,10 +175,10 @@
 {% endblock %}
 
 {% block content %}
-<div class="bg-yellow-500/20 text-yellow-500 p-2 rounded mb-4 text-xs">
+<!-- <div class="bg-yellow-500/20 text-yellow-500 p-2 rounded mb-4 text-xs">
     Debug - User ID from Django: {{ user.user_id|default:"NOT PASSED" }}<br>
     User object: {{ user|default:"No user object" }}
-</div>
+</div> -->
 <div class="mb-6">
     <h2 class="text-2xl font-bold flex items-center gap-2">
         <i class="bi bi-camera-video text-sky"></i> Live CCTV Monitoring
@@ -242,10 +242,10 @@
                 <label class="block text-sm text-gray-400 mb-1">IP Address / RTSP URL</label>
                 <input type="text" id="configIpAddress"
                     class="w-full px-3 py-2 bg-darkbg rounded-lg border border-gray-600 text-white focus:border-sky focus:outline-none transition"
-                    placeholder="rtsp://192.168.1.100:554/stream">
+                    placeholder="rtsp://192.168.1.227:8080/h264.sdp">
                 <div class="mt-2 p-3 bg-darkbg rounded-lg border border-gray-700 text-xs text-gray-500 space-y-1">
                     <p class="text-gray-400 font-medium mb-1">Common formats:</p>
-                    <p>• <code class="bg-black px-1 rounded">rtsp://192.168.1.100:554/stream</code></p>
+                    <p>• <code class="bg-black px-1 rounded">rtsp://192.168.1.227:8080/h264.sdp</code></p>
                     <p>• <code class="bg-black px-1 rounded">http://192.168.1.100:8080/video</code></p>
                     <p>• <code class="bg-black px-1 rounded">rtsp://user:pass@ip:port/stream</code></p>
                 </div>
@@ -353,14 +353,16 @@ function showNotification(message, type = 'info') {
 async function loadCamerasFromDatabase() {
     try {
         const sb = getSupabaseClient();
-        const { data: cameras, error } = await sb
-            .from('cctv')
-            .select('*')
-            .order('camera_id', { ascending: true });
+        
+        // ← Fetch both DB cameras AND current backend stream state in parallel
+        const [{ data: cameras, error }, activeRes] = await Promise.all([
+            sb.from('cctv').select('*').order('camera_id', { ascending: true }),
+            fetch('/get-active-streams/').then(r => r.json()).catch(() => ({ active_streams: {} }))
+        ]);
 
         if (error) throw error;
 
-        // Preserve in-memory stream/AI state across reloads
+        const activeStreams = activeRes.active_streams || {};  // ← ground truth from backend
         const prev = { ...cameraConfigs };
         cameraConfigs = {};
 
@@ -379,14 +381,19 @@ async function loadCamerasFromDatabase() {
         grid.innerHTML = cameras.map(cam => {
             const id  = sid(cam.camera_id);
             const old = prev[id] ?? {};
+            
+            // ← Prefer backend truth over stale JS memory
+            const backendStream = activeStreams[id] ?? activeStreams[String(id)] ?? null;
+            const streamActive  = backendStream ? backendStream.active     : (old.stream_active ?? false);
+            const aiEnabled     = backendStream ? backendStream.ai_enabled : (old.ai_enabled    ?? false);
 
             cameraConfigs[id] = {
                 camera_id:     id,
                 location_name: cam.location_name,
                 ip_address:    cam.ip_address,
                 status:        cam.status,
-                stream_active: old.stream_active ?? false,
-                ai_enabled:    old.ai_enabled    ?? false,
+                stream_active: streamActive,
+                ai_enabled:    aiEnabled,
             };
 
             const statusClass = cam.status === 'Offline'     ? 'status-offline'
@@ -400,7 +407,6 @@ async function loadCamerasFromDatabase() {
             <div class="camera-feed" id="camera-${id}">
                 <div class="camera-status ${statusClass}" id="camStatus-${id}">${statusText}</div>
                 <div class="ai-status ai-inactive" id="aiStatus-${id}">AI INACTIVE</div>
-
                 <div class="camera-viewport">
                     <div class="camera-placeholder" id="placeholder-${id}">
                         <i class="bi bi-camera-video text-5xl opacity-30 mb-2"></i>
@@ -419,7 +425,6 @@ async function loadCamerasFromDatabase() {
                          onload="handleStreamLoad('${id}')"
                          onerror="handleStreamError('${id}')">
                 </div>
-
                 <div class="p-4 bg-[#1E293B]">
                     <div class="flex justify-between items-center gap-2 flex-wrap">
                         <span class="text-sm text-gray-300 font-medium truncate max-w-[130px]">${cam.location_name}</span>
@@ -441,20 +446,28 @@ async function loadCamerasFromDatabase() {
                                 class="bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1 rounded text-xs font-semibold transition">
                                 <i class="bi bi-arrows-fullscreen"></i>
                             </button>
+                                <!-- ←  MOCK TEST BUTTON -->
+    <button onclick="runMockTest('${id}')"
+        class="bg-orange-500 hover:bg-orange-600 text-white px-2.5 py-1 rounded text-xs font-semibold transition"
+        title="Send mock crash alert for this camera">
+        <i class="bi bi-bug mr-1"></i> Test
+    </button>
                         </div>
                     </div>
                 </div>
             </div>`;
         }).join('');
 
-        // Re-attach streams that were already running before the reload
+        // ← Restore UI for all cameras based on reconciled state
         for (const id of Object.keys(cameraConfigs)) {
             const cfg = cameraConfigs[id];
             if (cfg.stream_active) {
                 _attachStream(id);
                 _syncStreamUI(id, true);
-                if (cfg.ai_enabled) _syncAIUI(id, true);
-                else _syncAIUI(id, false);   // enabled but not active AI
+                _syncAIUI(id, cfg.ai_enabled);
+            } else {
+                _syncStreamUI(id, false);
+                _disableAIUI(id);
             }
         }
 
@@ -862,6 +875,59 @@ async function deleteCamera() {
     }
 }
 
+// ─── Mock Test ────────────────────────────────────────────────────────────────
+
+async function runMockTest(cameraId) {
+    const id  = sid(cameraId);
+    const cfg = cameraConfigs[id];
+    if (!cfg) return;
+
+    // Confirm before sending
+    const confirmed = confirm(
+        `🧪 Mock Test for: ${cfg.location_name}\n\n` +
+        `Camera ID : ${id}\n` +
+        `IP Address: ${cfg.ip_address}\n` +
+        `Status    : ${cfg.status}\n\n` +
+        `This will send a FAKE crash alert to all admins.\nContinue?`
+    );
+    if (!confirmed) return;
+
+    // Disable button to prevent spam
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split mr-1"></i>Sending…';
+
+    try {
+        const res = await fetch('/mock-test-camera/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({
+                camera_id:   id,
+                camera_name: cfg.location_name,
+                ip_address:  cfg.ip_address
+            })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
+
+        showNotification(
+            `🧪 Mock alert sent! Notified ${data.details.admins_notified} admin(s) for ${cfg.location_name}`,
+            'success'
+        );
+
+    } catch (err) {
+        console.error('runMockTest:', err);
+        showNotification(`❌ Mock test failed: ${err.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-bug mr-1"></i>Mock Test';
+    }
+}
 
 // ─── Supabase Realtime ────────────────────────────────────────────────────────
 

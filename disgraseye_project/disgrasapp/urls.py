@@ -31,6 +31,7 @@ urlpatterns = [
     path('live/status/', views.get_detection_status, name='get_detection_status'),
     path('start-rtsp-monitoring/', views.start_rtsp_monitoring, name='start_rtsp_monitoring'),
     path('get-rtsp-status/', views.get_rtsp_status, name='get_rtsp_status'),
+    path('get-active-streams/', views.get_active_streams, name='get_active_streams'),
 
     # ===== Camera Stream URLs =====
     path('camera-stream/<str:camera_id>/', views.camera_stream, name='camera_stream'),
@@ -38,4 +39,5 @@ urlpatterns = [
     path('stop-camera-stream/', views.stop_camera_stream, name='stop_camera_stream'),
     path('toggle-camera-ai/', views.toggle_camera_ai, name='toggle_camera_ai'),
     path('camera-status/<str:camera_id>/', views.get_camera_status, name='camera_status'),
-]
+    path('mock-test-camera/', views.mock_test_camera, name='mock_test_camera'),
+]   
