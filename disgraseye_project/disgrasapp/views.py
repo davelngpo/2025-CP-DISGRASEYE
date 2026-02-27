@@ -33,6 +33,28 @@ is_monitoring = False
 latest_detection_result = None
 current_rtsp_url = ""
 
+from collections import deque
+import uuid
+
+# Rolling frame buffer for each camera: { camera_id: deque of (timestamp, frame) }
+# At 5fps × 5 seconds = 25 frames pre-crash, ~5-15 MB RAM per camera
+camera_frame_buffers = {}
+
+# Tracks cameras currently collecting post-crash frames
+# { camera_id: { 'before': [...], 'after': [...], 'target': int, 'accident_id': int } }
+camera_post_crash_capture = {}
+
+CLIP_FPS          = 10   # fps stored in buffer (NOT stream fps — saves RAM)
+CLIP_BEFORE_SECS  = 5   # seconds of footage before crash
+CLIP_AFTER_SECS   = 5   # seconds of footage after crash
+CLIP_BEFORE_FRAMES = CLIP_FPS * CLIP_BEFORE_SECS   # 25 frames
+CLIP_AFTER_FRAMES  = CLIP_FPS * CLIP_AFTER_SECS    # 25 frames
+
+# How often to sample a frame into the buffer (e.g. if stream is 15fps, sample 1-in-3)
+# Adjust STREAM_FPS to match your actual RTSP fps
+STREAM_FPS    = 15
+SAMPLE_EVERY  = max(1, STREAM_FPS // CLIP_FPS)  # = 3  (every 3rd frame)
+
 # =============================================================================
 # AUTHENTICATION & BASIC VIEWS
 # =============================================================================
@@ -950,7 +972,32 @@ def process_video(video_upload):
         video_upload.save()
         
                 # ✅ ADD THIS: Send Supabase notification if crash detected
-        if final_crash_detected:
+        if final_crash_detected and crash_events:
+            # Extract a 10-second clip centred on the first crash event
+            first_crash_time = crash_events[0]['timestamp']   # seconds into video
+            clip_start = max(0.0, first_crash_time - 5.0)
+            clip_end   = first_crash_time + 5.0
+
+            clip_path = extract_clip_from_video(
+                input_video_path,
+                clip_start,
+                clip_end,
+                fps=fps
+            )
+
+            # Upload clip to Supabase Storage
+            clip_url = None
+            if clip_path:
+                clip_url = upload_clip_to_supabase(clip_path, f'upload_{video_upload.id}')
+                if clip_path and os.path.exists(clip_path):
+                    os.remove(clip_path)
+
+            send_crash_alert_to_supabase(
+                accident_id=video_upload.id,
+                location=f"Uploaded video: {os.path.basename(input_video_path)}",
+                clip_url=clip_url
+            )
+        elif final_crash_detected:
             send_crash_alert_to_supabase(
                 accident_id=video_upload.id,
                 location=f"Uploaded video: {os.path.basename(input_video_path)}"
@@ -1280,17 +1327,15 @@ def send_cctv_crash_alert(cam_id):
 
 
 def ai_worker(camera_id):
-    """Runs YOLO in a separate thread — never blocks the stream"""
+    """Runs YOLO in a separate thread — never blocks the stream."""
     print(f"🤖 AI worker started for camera {camera_id}")
 
     while active_camera_streams.get(camera_id, {}).get('active', False):
 
-        # If AI was toggled off, just idle
         if not active_camera_streams.get(camera_id, {}).get('ai_enabled', False):
             time.sleep(0.1)
             continue
 
-        # Wait for a frame from the stream loop
         try:
             frame = camera_ai_queues[camera_id].get(timeout=1.0)
         except queue.Empty:
@@ -1300,10 +1345,10 @@ def ai_worker(camera_id):
             small_frame = cv2.resize(frame, (320, 240))
             results = model(small_frame, imgsz=320, conf=0.5, verbose=False)
 
-            crash_detected = False
-            detected_classes = []
+            crash_detected    = False
+            detected_classes  = []
             detected_confidences = []
-            detected_boxes = []  # stores scaled box coordinates for drawing
+            detected_boxes    = []
 
             if results and results[0].boxes is not None:
                 for box in results[0].boxes:
@@ -1311,25 +1356,19 @@ def ai_worker(camera_id):
                     class_name = model.names[class_id]
                     confidence = float(box.conf[0])
 
-                    # Scale coords from 320x240 back up to 640x480
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
                     detected_boxes.append({
-                        'x1':      int(x1 * 2),
-                        'y1':      int(y1 * 2),
-                        'x2':      int(x2 * 2),
-                        'y2':      int(y2 * 2),
-                        'class':   class_name,
-                        'conf':    confidence,
+                        'x1': int(x1 * 2), 'y1': int(y1 * 2),
+                        'x2': int(x2 * 2), 'y2': int(y2 * 2),
+                        'class':    class_name,
+                        'conf':     confidence,
                         'is_crash': any(k in class_name.lower() for k in ['crash', 'accident'])
                     })
-
                     detected_classes.append(class_name)
                     detected_confidences.append(confidence)
-
                     if any(k in class_name.lower() for k in ['crash', 'accident']):
                         crash_detected = True
 
-            # Cache result + boxes + debug info
             with stream_lock:
                 if camera_id in active_camera_streams:
                     active_camera_streams[camera_id]['last_detection'] = {
@@ -1342,22 +1381,38 @@ def ai_worker(camera_id):
                     prev = active_camera_streams[camera_id].get('frames_analyzed', 0)
                     active_camera_streams[camera_id]['frames_analyzed'] = prev + 1
 
-            # Send Supabase alert with 30s cooldown
             if crash_detected:
                 last_alert = active_camera_streams.get(camera_id, {}).get('last_alert_time', 0)
-                if time.time() - last_alert > 30:
+
+                # 30-second cooldown — also skip if we're already capturing a clip
+                already_capturing = camera_id in camera_post_crash_capture
+                if time.time() - last_alert > 30 and not already_capturing:
+
                     with stream_lock:
                         if camera_id in active_camera_streams:
                             active_camera_streams[camera_id]['last_alert_time'] = time.time()
 
-                    alert_thread = threading.Thread(
-                        target=send_cctv_crash_alert, args=(camera_id,)
+                    # ── Snapshot pre-crash buffer immediately ──────────────
+                    before_frames = []
+                    if camera_id in camera_frame_buffers:
+                        # Copy all buffered frames (oldest → newest)
+                        before_frames = [f.copy() for _, f in list(camera_frame_buffers[camera_id])]
+
+                    print(f"📸 Crash detected on camera {camera_id} — "
+                          f"captured {len(before_frames)} pre-crash frames")
+
+                    # ── Kick off alert + post-crash collection ─────────────
+                    clip_thread = threading.Thread(
+                        target=create_accident_and_start_capture,
+                        args=(camera_id, before_frames),
+                        daemon=True
                     )
-                    alert_thread.daemon = True
-                    alert_thread.start()
+                    clip_thread.start()
 
         except Exception as e:
             print(f"❌ AI worker error for camera {camera_id}: {e}")
+
+    print(f"🛑 AI worker stopped for camera {camera_id}")
 
 
 def generate_camera_frames(camera_id, rtsp_url):
@@ -1389,13 +1444,40 @@ def generate_camera_frames(camera_id, rtsp_url):
             # Check if AI is enabled
             ai_enabled = active_camera_streams.get(camera_id, {}).get('ai_enabled', False)
 
+            if camera_id not in camera_frame_buffers:
+                camera_frame_buffers[camera_id] = deque(maxlen=CLIP_BEFORE_FRAMES)
+
+            # Sample every Nth frame to hit ~CLIP_FPS without storing every frame
+            frame_index = active_camera_streams.get(camera_id, {}).get('frames_analyzed', 0)
+            if frame_index % SAMPLE_EVERY == 0:
+                camera_frame_buffers[camera_id].append((time.time(), frame.copy()))
+
+            # ── Post-crash frame collection ────────────────────────────────
+            if camera_id in camera_post_crash_capture:
+                capture = camera_post_crash_capture[camera_id]
+                if frame_index % SAMPLE_EVERY == 0:
+                    capture['after'].append(frame.copy())
+
+                if len(capture['after']) >= capture['target']:
+                    # Enough after-frames collected — encode in background
+                    before       = capture['before']
+                    after        = capture['after']
+                    accident_id  = capture['accident_id']
+                    del camera_post_crash_capture[camera_id]
+
+                    encode_thread = threading.Thread(
+                        target=encode_and_upload_clip,
+                        args=(before + after, camera_id, accident_id),
+                        daemon=True
+                    )
+                    encode_thread.start()
+
+            # ── Send frame to AI worker (non-blocking) ─────────────────────
             if ai_enabled:
-                # Send frame to AI worker (non-blocking — drop if worker is busy)
                 try:
                     camera_ai_queues[camera_id].put_nowait(frame.copy())
                 except queue.Full:
                     pass
-
                 # Get last detection result
                 last_detection   = active_camera_streams.get(camera_id, {}).get('last_detection') or {}
                 crash_detected   = last_detection.get('crash_detected', False)
@@ -1507,6 +1589,250 @@ def generate_camera_frames(camera_id, rtsp_url):
     if camera_id in camera_latest_frame:
         del camera_latest_frame[camera_id]
     print(f"🛑 Camera {camera_id} stream stopped")
+
+def create_accident_and_start_capture(camera_id, before_frames):
+    """
+    1. Creates the accident_detections record in Supabase
+    2. Registers the camera for post-crash frame collection
+    3. Sends initial alerts to all admins
+
+    Called from ai_worker() in a background thread immediately on crash detection.
+    The clip is encoded later by encode_and_upload_clip() once after-frames are ready.
+    """
+    try:
+        from supabase import create_client as _create_client
+        admin_client = _create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+
+        cam_name = active_camera_streams.get(camera_id, {}).get('camera_name', f'Camera {camera_id}')
+
+        # 1. Create accident record (no video_clip yet — will be updated after encoding)
+        accident_response = admin_client.table('accident_detections').insert({
+            'camera_id':      int(camera_id),
+            'detection_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'status':         'Pending'
+        }).execute()
+
+        if not accident_response.data:
+            print(f"❌ Failed to create accident record for camera {camera_id}")
+            # Still send alert without a clip
+            send_cctv_crash_alert(camera_id)
+            return
+
+        accident_id = accident_response.data[0]['accident_id']
+        print(f"✅ Accident record created: #{accident_id} for camera {camera_id}")
+
+        # 2. Register for post-crash frame collection
+        #    generate_camera_frames() will feed frames into capture['after']
+        camera_post_crash_capture[camera_id] = {
+            'before':      before_frames,
+            'after':       [],
+            'target':      CLIP_AFTER_FRAMES,
+            'accident_id': accident_id,
+        }
+
+        # 3. Send alerts immediately (clip will arrive a few seconds later via update)
+        admins = admin_client.table('users').select('user_id').eq('role', 'admin').execute()
+        if admins.data:
+            alerts = [{
+                'detection_id':    accident_id,
+                'sent_to':         admin['user_id'],
+                'message':         f'🚨 Crash detected on {cam_name} — review clip generating…',
+                'response_status': 'Unacknowledged',
+                'alert_time':      time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            } for admin in admins.data]
+            admin_client.table('alerts').insert(alerts).execute()
+            print(f"✅ Alerts sent to {len(admins.data)} admin(s) for accident #{accident_id}")
+        else:
+            print(f"⚠️ No admins found for accident #{accident_id}")
+
+    except Exception as e:
+        print(f"❌ create_accident_and_start_capture error: {e}")
+        import traceback; traceback.print_exc()
+        # Fall back to old alert with no clip
+        send_cctv_crash_alert(camera_id)
+
+
+def encode_and_upload_clip(frames, camera_id, accident_id):
+    """
+    Encodes a list of OpenCV frames into an MP4, uploads to Supabase Storage
+    (bucket: 'accident-clips'), then updates accident_detections.video_clip
+    and the corresponding alert message.
+
+    Called from generate_camera_frames() in a background thread once enough
+    post-crash frames have been collected.
+    """
+    if not frames:
+        print(f"⚠️ encode_and_upload_clip: no frames for accident #{accident_id}")
+        return
+
+    tmp_path = None
+    try:
+        print(f"🎬 Encoding {len(frames)} frames for accident #{accident_id}…")
+
+        h, w   = frames[0].shape[:2]
+        clip_filename = f'crash_{accident_id}_{uuid.uuid4().hex[:6]}.mp4'
+        tmp_path = os.path.join(settings.MEDIA_ROOT, 'clips', clip_filename)
+        os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
+
+        # Try avc1 first (H.264, best browser compat), fall back to mp4v
+        out = None
+        for fourcc_str in ('avc1', 'H264', 'mp4v'):
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
+            out    = cv2.VideoWriter(tmp_path, fourcc, CLIP_FPS, (w, h))
+            if out.isOpened():
+                print(f"✅ Using codec: {fourcc_str}")
+                break
+            out = None
+
+        if out is None or not out.isOpened():
+            raise RuntimeError("Could not open VideoWriter with any codec")
+
+        for frame in frames:
+            out.write(frame)
+        out.release()
+
+        file_size = os.path.getsize(tmp_path)
+        if file_size == 0:
+            raise RuntimeError("Encoded file is empty")
+
+        print(f"✅ Clip encoded: {file_size / 1024:.1f} KB")
+
+        # ── Upload to Supabase Storage ──────────────────────────────────────
+        from supabase import create_client as _create_client
+        admin_client = _create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+
+        storage_key = f'clips/crash_{accident_id}.mp4'
+
+        with open(tmp_path, 'rb') as f:
+            admin_client.storage.from_('accident-clips').upload(
+                path=storage_key,
+                file=f,
+                file_options={"content-type": "video/mp4", "upsert": "true"}
+            )
+
+        public_url = admin_client.storage.from_('accident-clips').get_public_url(storage_key)
+        print(f"✅ Clip uploaded: {public_url}")
+
+        # ── Update accident record with clip URL ────────────────────────────
+        admin_client.table('accident_detections').update({
+            'video_clip': public_url
+        }).eq('accident_id', accident_id).execute()
+
+        # ── Update alert message so admins know the clip is ready ───────────
+        cam_name = active_camera_streams.get(camera_id, {}).get('camera_name', f'Camera {camera_id}')
+        admin_client.table('alerts').update({
+            'message': f'🚨 Crash on {cam_name} — clip ready for review'
+        }).eq('detection_id', accident_id).execute()
+
+        print(f"✅ accident_detections #{accident_id} updated with video_clip URL")
+
+    except Exception as e:
+        print(f"❌ encode_and_upload_clip error for accident #{accident_id}: {e}")
+        import traceback; traceback.print_exc()
+    finally:
+        # Always clean up temp file
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+def extract_clip_from_video(video_path, start_sec, end_sec, fps=30):
+    """
+    Re-opens a video file and extracts the segment [start_sec, end_sec]
+    into a temporary MP4. Returns the temp file path, or None on failure.
+
+    No ring buffer needed — we already have the source file on disk.
+    """
+    tmp_path = None
+    cap      = None
+    out      = None
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print(f"❌ extract_clip: cannot open {video_path}")
+            return None
+
+        actual_fps = cap.get(cv2.CAP_PROP_FPS)
+        if actual_fps <= 0 or actual_fps > 120:
+            actual_fps = fps
+
+        width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        start_frame = int(start_sec * actual_fps)
+        end_frame   = int(end_sec   * actual_fps)
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+        clip_filename = f'upload_clip_{uuid.uuid4().hex[:8]}.mp4'
+        tmp_path = os.path.join(settings.MEDIA_ROOT, 'clips', clip_filename)
+        os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
+
+        out = None
+        for fourcc_str in ('avc1', 'H264', 'mp4v'):
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
+            out    = cv2.VideoWriter(tmp_path, fourcc, actual_fps, (width, height))
+            if out.isOpened():
+                break
+            out = None
+
+        if out is None or not out.isOpened():
+            raise RuntimeError("Could not open VideoWriter")
+
+        frames_written = 0
+        current_frame  = start_frame
+        while current_frame <= end_frame:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            out.write(frame)
+            frames_written += 1
+            current_frame  += 1
+
+        cap.release()
+        out.release()
+
+        if os.path.getsize(tmp_path) == 0:
+            raise RuntimeError("Output clip is empty")
+
+        print(f"✅ Extracted clip: {frames_written} frames → {tmp_path}")
+        return tmp_path
+
+    except Exception as e:
+        print(f"❌ extract_clip_from_video error: {e}")
+        if cap:  cap.release()
+        if out:  out.release()
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return None
+
+
+def upload_clip_to_supabase(clip_path, label='clip'):
+    """
+    Uploads a local MP4 to Supabase Storage bucket 'accident-clips'.
+    Returns the public URL string, or None on failure.
+    """
+    try:
+        from supabase import create_client as _create_client
+        admin_client = _create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+
+        storage_key = f'clips/{label}_{uuid.uuid4().hex[:8]}.mp4'
+
+        with open(clip_path, 'rb') as f:
+            admin_client.storage.from_('accident-clips').upload(
+                path=storage_key,
+                file=f,
+                file_options={"content-type": "video/mp4", "upsert": "true"}
+            )
+
+        public_url = admin_client.storage.from_('accident-clips').get_public_url(storage_key)
+        print(f"✅ Clip uploaded to Supabase: {public_url}")
+        return public_url
+
+    except Exception as e:
+        print(f"❌ upload_clip_to_supabase error: {e}")
+        return None
 
 def camera_stream(request, camera_id):
     """Stream video for a specific camera"""
@@ -1641,47 +1967,49 @@ def reports(request):
         'SUPABASE_ANON_KEY': settings.SUPABASE_ANON_KEY,
     })
 
-def send_crash_alert_to_supabase(accident_id, camera_id=None, location="Video Upload"):
-    """Send crash alert to all admins via Supabase"""
+def send_crash_alert_to_supabase(accident_id, camera_id=None, location="Video Upload", clip_url=None):
+    """Send crash alert to all admins via Supabase. Now accepts an optional clip_url."""
     try:
-        from supabase import create_client
-        admin_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
-        
-        # Create accident detection record
+        from supabase import create_client as _create_client
+        admin_client = _create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+
         accident_data = {
             'detection_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             'status': 'Pending'
         }
         if camera_id:
             accident_data['camera_id'] = camera_id
-            
+        if clip_url:
+            accident_data['video_clip'] = clip_url
+
         accident_response = admin_client.table('accident_detections').insert(accident_data).execute()
-        
+
         if not accident_response.data:
             print("❌ Failed to create accident detection record")
             return
-            
+
         new_accident_id = accident_response.data[0]['accident_id']
-        
-        # Get all admins
+
         admins = admin_client.table('users').select('user_id').eq('role', 'admin').execute()
-        
+
         if admins.data:
+            clip_note = ' — clip attached' if clip_url else ''
             alerts = [{
-                'detection_id': new_accident_id,
-                'sent_to': admin['user_id'],
-                'message': f'🚨 Crash detected in uploaded video at {location}',
+                'detection_id':    new_accident_id,
+                'sent_to':         admin['user_id'],
+                'message':         f'🚨 Crash detected in uploaded video at {location}{clip_note}',
                 'response_status': 'Unacknowledged',
-                'alert_time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                'alert_time':      time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             } for admin in admins.data]
-            
+
             admin_client.table('alerts').insert(alerts).execute()
             print(f"✅ Crash alert sent to {len(admins.data)} admin(s)")
         else:
             print("⚠️ No admins found to notify")
-            
+
     except Exception as e:
         print(f"❌ Error sending crash alert: {e}")
+
 
 def get_active_streams(request):
     """Return which cameras are currently streaming and their AI state"""
