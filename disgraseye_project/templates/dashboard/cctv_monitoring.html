@@ -51,27 +51,27 @@
     .status-maintenance { background: rgba(251, 191, 36, 0.85) !important; }
 
     /* Modal */
-    .modal-overlay {
-        display: none;
-        position: fixed;
-        inset: 0;
-        background: rgba(0,0,0,0.7);
-        z-index: 1000;
-        backdrop-filter: blur(5px);
-    }
-    .modal-content {
-        position: absolute;
-        top: 50%; left: 50%;
-        transform: translate(-50%, -50%);
-        background: #1E293B;
-        border: 2px solid #334155;
-        border-radius: 12px;
-        padding: 2rem;
-        width: 90%;
-        max-width: 500px;
-        max-height: 90vh;
-        overflow-y: auto;
-    }
+.cctv-modal-overlay {        
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    backdrop-filter: blur(5px);
+}
+.cctv-modal-content {     
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: #1E293B;
+    border: 2px solid #334155;
+    border-radius: 12px;
+    padding: 2rem;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
 
     /* Fullscreen */
     #fullscreen-container {
@@ -225,8 +225,8 @@
 </div>
 
 <!-- Config Modal -->
-<div id="configModal" class="modal-overlay">
-    <div class="modal-content">
+<div id="configModal" class="cctv-modal-overlay">
+    <div class="cctv-modal-content">
         <div class="flex justify-between items-center mb-4">
             <h3 class="text-xl font-bold text-white" id="configTitle">Configure Camera</h3>
             <button onclick="closeConfigModal()" class="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
