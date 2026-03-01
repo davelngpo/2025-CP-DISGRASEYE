@@ -622,14 +622,7 @@
         
         document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
         document.getElementById(`tab-${tabName}`).classList.add('active');
-        
-        // Hide "How It Works" section in non-live tabs
-        const howItWorks = document.getElementById('howItWorks');
-        if (tabName === 'live') {
-            howItWorks.style.display = 'block';
-        } else {
-            howItWorks.style.display = 'none';
-        }
+    
         
         // Load data if needed
         if (tabName === 'history') {
