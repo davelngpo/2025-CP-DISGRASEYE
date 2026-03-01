@@ -22,6 +22,39 @@
         border-color: #38BDF8;
         transform: translateY(-2px);
     }
+     /* ── CRASH ALERT STATE ── */
+.camera-feed.crash-alert {
+    border-color: #EF4444 !important;
+    transform: translateY(-2px);
+    animation: crashPulse 0.8s ease-in-out infinite;
+}
+@keyframes crashPulse {
+    0%   { border-color: #EF4444; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.9); }
+    50%  { border-color: #ff6b6b; box-shadow: 0 0 28px 8px rgba(239, 68, 68, 0.6), 0 0 0 4px rgba(239,68,68,0.3); }
+    100% { border-color: #EF4444; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* Flashing "CRASH!" banner inside the card */
+.crash-label {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(239, 68, 68, 0.95);
+    color: white;
+    padding: 4px 14px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+    z-index: 20;
+    display: none;
+    width: fit-content;        
+    white-space: nowrap;
+    animation: crashLabelBlink 0.6s ease-in-out infinite;
+}
+
+
     .camera-status {
         position: absolute;
         top: 10px;
@@ -930,13 +963,19 @@ async function runMockTest(cameraId) {
 }
 
 // ─── Supabase Realtime ────────────────────────────────────────────────────────
-
 function setupRealtimeUpdates() {
     const sb = getSupabaseClient();
     if (!sb) return;
     sb.channel('cctv-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cctv' }, () => {
           loadCamerasFromDatabase();
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'accident_detections' }, () => {
+          pollCrashStatus();
+      })
+      // ← ADD UPDATE listener too so False Alarm clears the flash
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'accident_detections' }, () => {
+          pollCrashStatus();
       })
       .subscribe();
 }
@@ -946,6 +985,10 @@ function setupRealtimeUpdates() {
 document.addEventListener('DOMContentLoaded', async () => {
     await loadCamerasFromDatabase();
     setupRealtimeUpdates();
+
+    //crash alert c
+    pollCrashStatus();
+    setInterval(pollCrashStatus, 10000);
 
     // Escape exits fullscreen
     document.addEventListener('keydown', e => {
@@ -967,5 +1010,48 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 });
+
+// ─── Poll Supabase for recent pending crash on each active camera ─────────────
+const crashAlertTimers = {};   // { camera_id: timeoutId }
+async function pollCrashStatus() {
+    const sb = getSupabaseClient();
+    if (!sb) return;
+
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+
+    for (const id of Object.keys(cameraConfigs)) {
+        const cfg = cameraConfigs[id];
+        if (!cfg.stream_active) {
+            setCrashAlert(id, false);
+            continue;
+        }   
+
+        try {
+            const { data } = await sb
+                .from('accident_detections')
+                .select('accident_id, status, detection_time')
+                .eq('camera_id', id)
+                .eq('status', 'Pending')          // ← ONLY Pending triggers the flash
+                .gte('detection_time', twoMinutesAgo)
+                .order('detection_time', { ascending: false })
+                .limit(1);
+
+            setCrashAlert(id, data && data.length > 0);
+        } catch (e) {
+            // silently ignore
+        }
+    }
+}
+
+function setCrashAlert(cameraId, active) {
+    const card = document.getElementById(`camera-${cameraId}`);
+    if (!card) return;
+
+    if (active) {
+        card.classList.add('crash-alert');
+    } else {
+        card.classList.remove('crash-alert');
+    }
+}
 </script>
 {% endblock %}
