@@ -254,7 +254,7 @@
         to { opacity: 1; transform: translateY(0); }
     }
 
-    /* ===== MODAL STYLES (restored from v1) ===== */
+    /* ===== MODAL STYLES ===== */
     .modal-overlay {
         background: rgba(0, 0, 0, 0.8);
         backdrop-filter: blur(5px);
@@ -323,6 +323,13 @@
         font-size: 0.65rem;
         opacity: 0.4;
         margin-top: 2px;
+    }
+
+    /* Dashboard container - centered */
+    #dashboard {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 1rem;
     }
 </style>
 {% endblock %}
@@ -652,31 +659,30 @@
                                 </div>
                             </div>
 
-                        
-                                <!-- Media Grid -->
-<div class="grid grid-cols-1 gap-4">
-    <div>
-        <h4 class="font-semibold mb-2 flex items-center gap-2">
-            <i class="fas fa-video text-sky"></i> Video Evidence
-        </h4>
-        ${accident.video_clip ? `
-            <div class="w-full">
-                <video src="${accident.video_clip}" controls
-                       class="w-full rounded-lg border border-gray-600 bg-black"
-                       style="max-height: 300px; width: 100%; object-fit: contain;">
-                    Your browser does not support the video tag.
-                </video>
-                <p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Video clip from time of detection</p>
-            </div>
-        ` : `
-            <div class="bg-[#112240] rounded-lg p-8 text-center text-gray-500 border border-gray-600">
-                <i class="fas fa-video-slash text-4xl mb-3 text-gray-600"></i>
-                <p class="text-base">No video available</p>
-                <p class="text-sm text-gray-600 mt-2">Video will appear once CCTV is integrated</p>
-            </div>
-        `}
-    </div>
-</div>
+                            <!-- Media Grid -->
+                            <div class="grid grid-cols-1 gap-4">
+                                <div>
+                                    <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                        <i class="fas fa-video text-sky"></i> Video Evidence
+                                    </h4>
+                                    ${accident.video_clip ? `
+                                        <div class="w-full">
+                                            <video src="${accident.video_clip}" controls
+                                                   class="w-full rounded-lg border border-gray-600 bg-black"
+                                                   style="max-height: 300px; width: 100%; object-fit: contain;">
+                                                Your browser does not support the video tag.
+                                            </video>
+                                            <p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Video clip from time of detection</p>
+                                        </div>
+                                    ` : `
+                                        <div class="bg-[#112240] rounded-lg p-8 text-center text-gray-500 border border-gray-600">
+                                            <i class="fas fa-video-slash text-4xl mb-3 text-gray-600"></i>
+                                            <p class="text-base">No video available</p>
+                                            <p class="text-sm text-gray-600 mt-2">Video will appear once CCTV is integrated</p>
+                                        </div>
+                                    `}
+                                </div>
+                            </div>
 
                             <!-- Detection Details -->
                             <div class="mb-6 p-4 bg-[#112240] rounded-lg border border-gray-600">
@@ -829,31 +835,30 @@
                                 </div>
                             </div>
 
-                          
-                                <!-- Media Grid -->
-<div class="grid grid-cols-1 gap-4">
-    <div>
-        <h4 class="font-semibold mb-2 flex items-center gap-2">
-            <i class="fas fa-video text-sky"></i> Video Evidence
-        </h4>
-        ${accident.video_clip ? `
-            <div class="w-full">
-                <video src="${accident.video_clip}" controls
-                       class="w-full rounded-lg border border-gray-600 bg-black"
-                       style="max-height: 300px; width: 100%; object-fit: contain;">
-                    Your browser does not support the video tag.
-                </video>
-                <p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Video clip from time of detection</p>
-            </div>
-        ` : `
-            <div class="bg-[#112240] rounded-lg p-8 text-center text-gray-500 border border-gray-600">
-                <i class="fas fa-video-slash text-4xl mb-3 text-gray-600"></i>
-                <p class="text-base">No video available</p>
-                <p class="text-sm text-gray-600 mt-2">Video will appear once CCTV is integrated</p>
-            </div>
-        `}
-    </div>
-</div>
+                            <!-- Media Grid -->
+                            <div class="grid grid-cols-1 gap-4">
+                                <div>
+                                    <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                        <i class="fas fa-video text-sky"></i> Video Evidence
+                                    </h4>
+                                    ${accident.video_clip ? `
+                                        <div class="w-full">
+                                            <video src="${accident.video_clip}" controls
+                                                   class="w-full rounded-lg border border-gray-600 bg-black"
+                                                   style="max-height: 300px; width: 100%; object-fit: contain;">
+                                                Your browser does not support the video tag.
+                                            </video>
+                                            <p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Video clip from time of detection</p>
+                                        </div>
+                                    ` : `
+                                        <div class="bg-[#112240] rounded-lg p-8 text-center text-gray-500 border border-gray-600">
+                                            <i class="fas fa-video-slash text-4xl mb-3 text-gray-600"></i>
+                                            <p class="text-base">No video available</p>
+                                            <p class="text-sm text-gray-600 mt-2">Video will appear once CCTV is integrated</p>
+                                        </div>
+                                    `}
+                                </div>
+                            </div>
 
                             <!-- Detection Details -->
                             <div class="mb-6 p-4 bg-[#112240] rounded-lg border border-gray-600">
@@ -1287,9 +1292,6 @@
             updateStats({ accidentsToday, pendingAccidents, adminConfirmed, verifiedCases, falseAlarms, totalDetections, pendingAlerts, responseRate });
             updateAlertsTable(alertData || [], currentUserRole);
             
-            // FIXED: Update system status
-            updateSystemStatus(accidentData || []);
-            
             document.getElementById('lastUpdate').textContent = 'Last update: ' + new Date().toLocaleTimeString();
             
         } catch (error) {
@@ -1318,46 +1320,6 @@
         
         const bar = document.getElementById('responseRateBar');
         if (bar) bar.style.width = stats.responseRate + '%';
-    }
-
-    function updateSystemStatus(detections) {
-        // FIXED: Get elements safely
-        const statusIcon = document.getElementById('statusIcon');
-        const statusText = document.getElementById('statusText');
-        
-        if (!statusIcon || !statusText) return;
-        
-        let message = 'System Active';
-        let icon = 'fa-check-circle';
-        let iconColor = 'text-greenlight';
-        
-        const recentDetection = detections && detections.length > 0 ? detections[0] : null;
-        
-        if (recentDetection && recentDetection.detection_time) {
-            try {
-                const minutesAgo = Math.floor((new Date() - new Date(recentDetection.detection_time)) / 60000);
-                if (minutesAgo > 30) { 
-                    message = 'No Recent Data'; 
-                    icon = 'fa-exclamation-circle';
-                    iconColor = 'text-gold';
-                }
-                if (minutesAgo > 60) {
-                    message = 'System Idle';
-                    icon = 'fa-exclamation-triangle';
-                    iconColor = 'text-alert';
-                }
-            } catch (e) {
-                console.error('Error calculating system status:', e);
-            }
-        } else {
-            // No detections at all
-            message = 'Waiting for Data';
-            icon = 'fa-clock';
-            iconColor = 'text-gold';
-        }
-        
-        statusIcon.className = `fas ${icon} ${iconColor}`;
-        statusText.textContent = message;
     }
 
     function updateElement(id, value) {
@@ -1463,85 +1425,6 @@
                     <h2 class="text-xl md:text-3xl font-bold text-sky mt-1 md:mt-2" id="responseRate">0%</h2>
                 </div>
                 <i class="fas fa-bullseye text-sky text-lg md:text-xl"></i>
-            </div>
-        </div>
-    </div>
-
-    <!-- System Status and Quick Actions -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
-        <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-white/5">
-            <div class="p-4 md:p-6 border-b border-white/5">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <i class="fas fa-heart-pulse text-sky"></i>
-                        <h3 class="text-lg md:text-xl font-bold">System Status</h3>
-                    </div>
-                    <span id="systemStatus" class="text-sm px-3 py-1 rounded-full flex items-center gap-1 bg-white/5 border border-white/10">
-                        <i id="statusIcon" class="fas fa-check-circle text-greenlight"></i>
-                        <span id="statusText" class="opacity-80">System Active</span>
-                    </span>
-                </div>
-            </div>
-            <div class="p-4 md:p-6">
-                <div class="space-y-3 md:space-y-4">
-                    <div class="flex justify-between items-center">
-                        <span class="text-sm md:text-base opacity-50">Response Rate</span>
-                        <span class="text-xl md:text-2xl font-bold text-sky" id="responseRate">0%</span>
-                    </div>
-                    <div class="w-full bg-white/5 rounded-full h-2">
-                        <div id="responseRateBar" class="bg-sky h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
-                    </div>
-                    <div class="grid grid-cols-3 gap-2 md:gap-4 text-xs md:text-sm">
-                        <div class="text-center p-2 md:p-3 bg-white/5 rounded-lg">
-                            <div class="font-bold text-base md:text-lg" id="verifiedCases">0</div>
-                            <div class="opacity-50">Responded</div>
-                        </div>
-                        <div class="text-center p-2 md:p-3 bg-white/5 rounded-lg">
-                            <div class="font-bold text-base md:text-lg" id="pendingAlerts">0</div>
-                            <div class="opacity-50">Pending</div>
-                        </div>
-                        <div class="text-center p-2 md:p-3 bg-white/5 rounded-lg">
-                            <div class="font-bold text-base md:text-lg" id="totalDetections">0</div>
-                            <div class="opacity-50">Total</div>
-                        </div>
-                    </div>
-                    <div class="pt-2 text-center">
-                        <small class="opacity-30" id="lastUpdate">Last update: --:--</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="bg-[#1E293B] rounded-xl shadow overflow-hidden border border-white/5">
-            <div class="p-4 md:p-6 border-b border-white/5">
-                <div class="flex items-center gap-2">
-                    <i class="fas fa-bolt text-gold"></i>
-                    <h3 class="text-lg md:text-xl font-bold">Quick Actions</h3>
-                </div>
-            </div>
-            <div class="p-4 md:p-6">
-                <div class="grid grid-cols-2 gap-3 md:gap-4">
-                    <a href="{% url 'cctv_monitoring' %}" class="bg-white/5 hover:bg-white/10 p-3 md:p-4 rounded-lg text-center transition border border-white/5">
-                        <i class="fas fa-video text-xl md:text-2xl mb-1 md:mb-2 text-sky"></i>
-                        <div class="font-semibold text-sm md:text-base">Live CCTV</div>
-                        <div class="text-xs md:text-sm opacity-40">Monitor Feeds</div>
-                    </a>
-                    <a href="{% url 'live_monitoring' %}" class="bg-white/5 hover:bg-white/10 p-3 md:p-4 rounded-lg text-center transition border border-white/5">
-                        <i class="fas fa-broadcast-tower text-xl md:text-2xl mb-1 md:mb-2 text-alert"></i>
-                        <div class="font-semibold text-sm md:text-base">Live Detection</div>
-                        <div class="text-xs md:text-sm opacity-40">Test System</div>
-                    </a>
-                    <a href="{% url 'reports' %}" class="bg-white/5 hover:bg-white/10 p-3 md:p-4 rounded-lg text-center transition border border-white/5">
-                        <i class="fas fa-chart-line text-xl md:text-2xl mb-1 md:mb-2 text-greenlight"></i>
-                        <div class="font-semibold text-sm md:text-base">Reports</div>
-                        <div class="text-xs md:text-sm opacity-40">View Analytics</div>
-                    </a>
-                    <button onclick="loadDashboardData()" class="bg-white/5 hover:bg-white/10 p-3 md:p-4 rounded-lg text-center transition border border-white/5">
-                        <i class="fas fa-sync-alt text-xl md:text-2xl mb-1 md:mb-2 text-gold"></i>
-                        <div class="font-semibold text-sm md:text-base">Refresh</div>
-                        <div class="text-xs md:text-sm opacity-40">Update Data</div>
-                    </button>
-                </div>
             </div>
         </div>
     </div>
