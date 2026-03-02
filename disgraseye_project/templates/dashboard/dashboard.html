@@ -1286,7 +1286,10 @@
             
             updateStats({ accidentsToday, pendingAccidents, adminConfirmed, verifiedCases, falseAlarms, totalDetections, pendingAlerts, responseRate });
             updateAlertsTable(alertData || [], currentUserRole);
+            
+            // FIXED: Update system status
             updateSystemStatus(accidentData || []);
+            
             document.getElementById('lastUpdate').textContent = 'Last update: ' + new Date().toLocaleTimeString();
             
         } catch (error) {
@@ -1306,28 +1309,54 @@
         updateElement('totalDetections', stats.totalDetections);
         updateElement('pendingAlerts', stats.pendingAlerts);
         updateElement('responseRate', stats.responseRate + '%');
+        
+        // Update response rate in both places
+        const responseRateElements = document.querySelectorAll('#responseRate');
+        responseRateElements.forEach(el => {
+            if (el) el.textContent = stats.responseRate + '%';
+        });
+        
         const bar = document.getElementById('responseRateBar');
         if (bar) bar.style.width = stats.responseRate + '%';
     }
 
     function updateSystemStatus(detections) {
-        const statusElement = document.getElementById('systemStatus');
+        // FIXED: Get elements safely
         const statusIcon = document.getElementById('statusIcon');
         const statusText = document.getElementById('statusText');
-        if (!statusElement) return;
+        
+        if (!statusIcon || !statusText) return;
         
         let message = 'System Active';
         let icon = 'fa-check-circle';
-        const recentDetection = detections[0];
+        let iconColor = 'text-greenlight';
         
-        if (recentDetection) {
+        const recentDetection = detections && detections.length > 0 ? detections[0] : null;
+        
+        if (recentDetection && recentDetection.detection_time) {
             try {
                 const minutesAgo = Math.floor((new Date() - new Date(recentDetection.detection_time)) / 60000);
-                if (minutesAgo > 30) { message = 'No Recent Data'; icon = 'fa-exclamation-circle'; }
-            } catch { /* ignore */ }
+                if (minutesAgo > 30) { 
+                    message = 'No Recent Data'; 
+                    icon = 'fa-exclamation-circle';
+                    iconColor = 'text-gold';
+                }
+                if (minutesAgo > 60) {
+                    message = 'System Idle';
+                    icon = 'fa-exclamation-triangle';
+                    iconColor = 'text-alert';
+                }
+            } catch (e) {
+                console.error('Error calculating system status:', e);
+            }
+        } else {
+            // No detections at all
+            message = 'Waiting for Data';
+            icon = 'fa-clock';
+            iconColor = 'text-gold';
         }
         
-        statusIcon.className = `fas ${icon} icon-xs`;
+        statusIcon.className = `fas ${icon} ${iconColor}`;
         statusText.textContent = message;
     }
 
@@ -1641,9 +1670,5 @@
         </div>
     </div>
 
-    <!-- Footer -->
-    <div class="mt-6 md:mt-8 text-center text-xs opacity-30">
-        <p>DisgrasEye Dashboard &bull; Real-time updates enabled &bull; Auto-refresh every 30 seconds</p>
-    </div>
 </div>
 {% endblock %}

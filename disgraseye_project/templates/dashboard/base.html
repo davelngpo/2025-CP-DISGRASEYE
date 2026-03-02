@@ -1197,25 +1197,25 @@ async function viewIncident(accidentId) {
         
         switch(accident.status) {
             case 'Verified':
-                statusDisplay = '✓ RESOLVED';
+                statusDisplay = 'RESOLVED';
                 statusColor = 'text-greenlight';
                 statusIcon = 'fa-check-circle';
                 statusMessage = 'This incident has been resolved. Tanod report has been submitted and verified.';
                 break;
             case 'False_Alarm':
-                statusDisplay = '✗ FALSE ALARM';
+                statusDisplay = 'FALSE ALARM';
                 statusColor = 'text-alert';
                 statusIcon = 'fa-times-circle';
                 statusMessage = 'This incident was determined to be a false alarm. No action needed.';
                 break;
             case 'Admin_Confirmed':
-                statusDisplay = '🚨 DISPATCHED';
+                statusDisplay = 'DISPATCHED';
                 statusColor = 'text-sky';
                 statusIcon = 'fa-paper-plane';
                 statusMessage = 'Tanod has been dispatched and is responding to the incident.';
                 break;
             default:
-                statusDisplay = '⏳ PENDING REVIEW';
+                statusDisplay = 'PENDING REVIEW';
                 statusColor = 'text-gold';
                 statusIcon = 'fa-clock';
                 statusMessage = 'Awaiting admin review.';
@@ -1455,7 +1455,7 @@ async function reviewAccident(accidentId) {
                     <div class="flex items-center gap-3">
                         <i class="fas fa-clock text-gold text-xl"></i>
                         <div>
-                            <p class="font-medium">Status: <span class="text-gold font-bold">⏳ PENDING REVIEW</span></p>
+                            <p class="font-medium">Status: <span class="text-gold font-bold">PENDING REVIEW</span></p>
                             <p class="text-xs text-gray-400 mt-1">Review the footage and decide: Is this a real accident or false alarm?</p>
                         </div>
                     </div>
@@ -1673,8 +1673,8 @@ async function viewFullReport(reportId) {
                                     accident.status === 'False_Alarm' ? 'bg-alert/10 text-alert' :
                                     'bg-gold/10 text-gold'
                                 }">
-                                    ${accident.status === 'Verified' ? '✓ VERIFIED' : 
-                                      accident.status === 'False_Alarm' ? '✗ FALSE ALARM' : 
+                                    ${accident.status === 'Verified' ? 'VERIFIED' : 
+                                      accident.status === 'False_Alarm' ? 'FALSE ALARM' : 
                                       accident.status}
                                 </span>
                             </p>
@@ -1964,8 +1964,8 @@ async function verifyAccident(accidentId, isConfirmed, closeModal = false) {
         if (!tanodError && tanods && tanods.length > 0) {
             // Create alerts for tanods
             const message = isConfirmed
-                ? `🚨 NEW ALERT: Confirmed accident at ${location}. Please respond.`
-                : `ℹ️ Update: False alarm at ${location}. No response needed.`;
+                ? `NEW ALERT: Confirmed accident at ${location}. Please respond.`
+                : `Update: False alarm at ${location}. No response needed.`;
             
             const alerts = tanods.map(tanod => ({
                 detection_id: accidentId,
@@ -1979,8 +1979,8 @@ async function verifyAccident(accidentId, isConfirmed, closeModal = false) {
             
             // Also create notification for admin
             const adminMessage = isConfirmed
-                ? `✅ Tanod dispatched for accident at ${location}`
-                : `❌ False alarm reported at ${location}`;
+                ? `Tanod dispatched for accident at ${location}`
+                : `False alarm reported at ${location}`;
             
             const { data: admins } = await adminClient
                 .from('users').select('user_id').eq('role', 'admin');
@@ -2057,7 +2057,7 @@ async function updateDecision(accidentId, newIsConfirmed, closeModal = false) {
         
         if (tanods && tanods.length > 0) {
             // Cancel old alerts
-            const cancelMessage = `⚠️ UPDATE: Previous alert for accident at ${location} has been cancelled. New assessment pending.`;
+            const cancelMessage = `UPDATE: Previous alert for accident at ${location} has been cancelled. New assessment pending.`;
             const cancelAlerts = tanods.map(tanod => ({
                 detection_id: accidentId,
                 sent_to: tanod.user_id,
@@ -2069,8 +2069,8 @@ async function updateDecision(accidentId, newIsConfirmed, closeModal = false) {
             
             // Send new decision alerts
             const message = newIsConfirmed
-                ? `🚨 NEW ALERT: Accident at ${location} has been CONFIRMED. Please respond.`
-                : `ℹ️ Update: Incident at ${location} has been marked as FALSE ALARM. No response needed.`;
+                ? `NEW ALERT: Accident at ${location} has been CONFIRMED. Please respond.`
+                : `Update: Incident at ${location} has been marked as FALSE ALARM. No response needed.`;
             
             const newAlerts = tanods.map(tanod => ({
                 detection_id: accidentId,
@@ -2087,8 +2087,8 @@ async function updateDecision(accidentId, newIsConfirmed, closeModal = false) {
             
             if (admins && admins.length > 0) {
                 const adminMessage = newIsConfirmed
-                    ? `🔄 Decision changed: Accident at ${location} confirmed (was false alarm)`
-                    : `🔄 Decision changed: Accident at ${location} cancelled (was confirmed)`;
+                    ? `Decision changed: Accident at ${location} confirmed (was false alarm)`
+                    : `Decision changed: Accident at ${location} cancelled (was confirmed)`;
                 
                 const adminAlerts = admins.map(admin => ({
                     detection_id: accidentId,
@@ -2302,7 +2302,7 @@ if (markAllReadBtn) {
     });
 }
 
-/* LOAD NOTIFICATIONS - FIXED with correct time sorting */
+/* LOAD NOTIFICATIONS - FIXED with correct time sorting and NO redundant icons in messages */
 async function loadNotifications() {
     if (!USER_ID || USER_ID === 'null') {
         console.log("No user ID available - skipping alerts");
@@ -2413,43 +2413,48 @@ async function loadNotifications() {
                 let bgColor = isUnread ? 'bg-sky/5' : '';
                 let displayMessage = alert.message || 'No message';
                 
+                // Override message based on incident status for cleaner display
                 if (incidentStatus === 'Verified') {
                     icon = "fa-check-circle";
                     colorClass = "text-greenlight";
-                    displayMessage = `✅ Incident resolved at ${location}. Report submitted.`;
+                    displayMessage = `Incident resolved at ${location}. Report submitted.`;
                 } else if (incidentStatus === 'False_Alarm') {
                     icon = "fa-times-circle";
                     colorClass = "text-alert";
-                    displayMessage = `❌ False alarm reported at ${location}. No action needed.`;
+                    displayMessage = `False alarm reported at ${location}. No action needed.`;
                 } else if (incidentStatus === 'Admin_Confirmed') {
                     if (alert.response_status === 'Unacknowledged') {
                         icon = "fa-bell";
                         colorClass = "text-alert";
-                        displayMessage = `🚨 ALERT: Confirmed accident at ${location}. Please respond.`;
+                        displayMessage = `ALERT: Confirmed accident at ${location}. Please respond.`;
                     } else if (alert.response_status === 'Acknowledged') {
                         icon = "fa-check-circle";
                         colorClass = "text-gold";
-                        displayMessage = `👤 You are responding to accident at ${location}`;
+                        displayMessage = `You are responding to accident at ${location}`;
                     } else if (alert.response_status === 'Resolved') {
                         icon = "fa-check-double";
                         colorClass = "text-greenlight";
-                        displayMessage = `✅ You have completed response at ${location}`;
+                        displayMessage = `You have completed response at ${location}`;
                     }
                 } else if (incidentStatus === 'Pending') {
                     icon = "fa-clock";
                     colorClass = "text-gold";
-                    displayMessage = `⏳ Pending review: Possible accident at ${location}`;
+                    displayMessage = `Pending review: Possible accident at ${location}`;
                 }
 
+                // Override for specific message types without icons in text
                 if (alert.message && alert.message.includes('📝')) {
                     icon = "fa-file-alt";
                     colorClass = "text-greenlight";
+                    displayMessage = alert.message.replace(/[📝✅❌🚨⚠️🔄]/g, '').trim() || `Report submitted for ${location}`;
                 } else if (alert.message && alert.message.includes('⚠️')) {
                     icon = "fa-exclamation-triangle";
                     colorClass = "text-gold";
+                    displayMessage = alert.message.replace(/[📝✅❌🚨⚠️🔄]/g, '').trim() || `Update for ${location}`;
                 } else if (alert.message && alert.message.includes('🔄')) {
                     icon = "fa-undo-alt";
                     colorClass = "text-gold";
+                    displayMessage = alert.message.replace(/[📝✅❌🚨⚠️🔄]/g, '').trim() || `Decision updated for ${location}`;
                 }
 
                 const fullMessage = displayMessage;
@@ -2666,7 +2671,7 @@ if (testAlertBtn) {
                 const adminAlerts = admins.map(admin => ({
                     detection_id: accident.accident_id,
                     sent_to: admin.user_id,
-                    message: `🚨 PENDING REVIEW: Possible accident detected at ${locationName}. Admin review needed.`,
+                    message: `PENDING REVIEW: Possible accident detected at ${locationName}. Admin review needed.`,
                     response_status: 'Unacknowledged',
                     alert_time: now
                 }));
@@ -2684,7 +2689,7 @@ if (testAlertBtn) {
                 const tanodAlerts = tanods.map(tanod => ({
                     detection_id: accident.accident_id,
                     sent_to: tanod.user_id,
-                    message: `🚨 NEW ALERT: Possible accident detected at ${locationName}. Awaiting admin confirmation.`,
+                    message: `NEW ALERT: Possible accident detected at ${locationName}. Awaiting admin confirmation.`,
                     response_status: 'Unacknowledged',
                     alert_time: now
                 }));
