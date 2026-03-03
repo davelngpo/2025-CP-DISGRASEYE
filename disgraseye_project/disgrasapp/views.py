@@ -1415,16 +1415,26 @@ def ai_worker(camera_id):
             # ── Require BOTH crash AND vehicle in same frame ───────────
             crash_raw = len(crash_boxes_raw) > 0
 
-            # ── Duration-based confirmation (1.5 seconds) ──────────────
+            # ── Duration-based confirmation ──────────────
+# Replace the duration block with this:
+            CRASH_WINDOW_SECS   = 3.0   # look-back window
+            CRASH_MIN_HITS      = 3     # detections needed within the window to confirm
+
             now = time.time()
+
             if crash_raw:
-                if not active_camera_streams[camera_id].get('crash_first_seen'):
-                    active_camera_streams[camera_id]['crash_first_seen'] = now
-                duration = now - active_camera_streams[camera_id]['crash_first_seen']
-                crash_detected = duration >= 0.3
+                hits = active_camera_streams[camera_id].get('crash_hits', [])
+                hits.append(now)
+                # Keep only hits within the window
+                hits = [t for t in hits if now - t <= CRASH_WINDOW_SECS]
+                active_camera_streams[camera_id]['crash_hits'] = hits
+                crash_detected = len(hits) >= CRASH_MIN_HITS
             else:
-                active_camera_streams[camera_id]['crash_first_seen'] = None
-                crash_detected = False
+                # Decay old hits but don't wipe immediately
+                hits = active_camera_streams[camera_id].get('crash_hits', [])
+                hits = [t for t in hits if now - t <= CRASH_WINDOW_SECS]
+                active_camera_streams[camera_id]['crash_hits'] = hits
+                crash_detected = len(hits) >= CRASH_MIN_HITS
 
             # ── Update shared state ────────────────────────────────────
             with stream_lock:
