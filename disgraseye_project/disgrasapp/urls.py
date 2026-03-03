@@ -40,4 +40,7 @@ urlpatterns = [
     path('toggle-camera-ai/', views.toggle_camera_ai, name='toggle_camera_ai'),
     path('camera-status/<str:camera_id>/', views.get_camera_status, name='camera_status'),
     path('mock-test-camera/', views.mock_test_camera, name='mock_test_camera'),
+
+    path('start-demo-camera-stream/', views.start_demo_camera_stream, name='start_demo_camera_stream'),
+    path('demo-camera-stream/<str:camera_id>/', views.demo_camera_stream, name='demo_camera_stream'),
 ]   

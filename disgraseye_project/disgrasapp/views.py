@@ -2141,3 +2141,377 @@ def mock_test_camera(request):
             return JsonResponse({'error': str(e)}, status=500)
     
     return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+# Add at the top with other imports
+import glob
+
+# Add these global variables near other globals
+demo_video_streams = {}  # { camera_id: VideoCapture object }
+demo_mode_active = {}    # { camera_id: bool }
+
+def generate_demo_camera_frames(camera_id, video_path):
+    """
+    Stream a pre-recorded video file in a loop as if it were a live camera.
+    Perfect for demos without actual RTSP cameras.
+    """
+    cap = cv2.VideoCapture(video_path)
+    
+    if not cap.isOpened():
+        print(f"❌ Demo video failed to open: {video_path}")
+        return
+    
+    # Store in global dict for cleanup
+    demo_video_streams[camera_id] = cap
+    demo_mode_active[camera_id] = True
+    
+    print(f"🎬 Demo mode: Streaming {video_path} for camera {camera_id}")
+    
+    # Set up AI queue if needed
+    if camera_id not in camera_ai_queues:
+        camera_ai_queues[camera_id] = queue.Queue(maxsize=2)
+    
+    # Start AI worker if not running
+    if camera_id not in [t.name for t in threading.enumerate()]:
+        ai_thread = threading.Thread(
+            target=ai_worker, 
+            args=(camera_id,), 
+            daemon=True,
+            name=f"ai_worker_{camera_id}"
+        )
+        ai_thread.start()
+    
+    frame_count = 0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    while active_camera_streams.get(camera_id, {}).get('active', False):
+        ret, frame = cap.read()
+        
+        # Loop video when it ends
+        if not ret or frame_count >= total_frames:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            frame_count = 0
+            print(f"🔄 Demo video loop restart for camera {camera_id}")
+            continue
+        
+        frame_count += 1
+        frame = cv2.resize(frame, (640, 480))
+        display_frame = frame.copy()
+        
+        # Check if AI is enabled
+        ai_enabled = active_camera_streams.get(camera_id, {}).get('ai_enabled', False)
+        
+        # Add to frame buffer for clip generation
+        if camera_id not in camera_frame_buffers:
+            camera_frame_buffers[camera_id] = deque(maxlen=CLIP_BEFORE_FRAMES)
+        
+        frame_index = active_camera_streams.get(camera_id, {}).get('frames_analyzed', 0)
+        if frame_index % SAMPLE_EVERY == 0:
+            camera_frame_buffers[camera_id].append((time.time(), frame.copy()))
+        
+        # Post-crash frame collection (same as real RTSP)
+        if camera_id in camera_post_crash_capture:
+            capture = camera_post_crash_capture[camera_id]
+            if frame_index % SAMPLE_EVERY == 0:
+                capture['after'].append(frame.copy())
+            
+            if len(capture['after']) >= capture['target']:
+                before = capture['before']
+                after = capture['after']
+                accident_id = capture['accident_id']
+                del camera_post_crash_capture[camera_id]
+                
+                encode_thread = threading.Thread(
+                    target=encode_and_upload_clip,
+                    args=(before + after, camera_id, accident_id),
+                    daemon=True
+                )
+                encode_thread.start()
+        
+        # Send to AI worker
+        if ai_enabled:
+            try:
+                camera_ai_queues[camera_id].put_nowait(frame.copy())
+            except queue.Full:
+                pass
+            
+            # Get detection results and draw (same as real RTSP)
+            last_detection = active_camera_streams.get(camera_id, {}).get('last_detection') or {}
+            crash_detected = last_detection.get('crash_detected', False)
+            detected_boxes = last_detection.get('boxes', [])
+            det_classes = last_detection.get('classes', [])
+            det_confidences = last_detection.get('confidences', [])
+            frames_analyzed = active_camera_streams.get(camera_id, {}).get('frames_analyzed', 0)
+            last_alert = active_camera_streams.get(camera_id, {}).get('last_alert_time', 0)
+            
+            # Draw bounding boxes (no labels, as requested)
+            for det in detected_boxes:
+                x1, y1, x2, y2 = det['x1'], det['y1'], det['x2'], det['y2']
+                is_crash = det['is_crash']
+                color = (0, 0, 255) if is_crash else (0, 255, 0)
+                
+                box_area = (x2 - x1) * (y2 - y1)
+                frame_area = display_frame.shape[0] * display_frame.shape[1]
+                if box_area / frame_area > 0.45:
+                    continue
+                
+                cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+            
+            if crash_detected:
+                cv2.rectangle(display_frame, (2, 2),
+                            (display_frame.shape[1]-2, display_frame.shape[0]-2),
+                            (0, 0, 255), 2)
+            
+            # Debug panel
+            overlay = display_frame.copy()
+            cv2.rectangle(overlay, (0, 0), (320, 160), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.5, display_frame, 0.5, 0, display_frame)
+            
+            if crash_detected:
+                cv2.putText(display_frame, "!! CRASH DETECTED !!", (10, 25),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
+            else:
+                cv2.putText(display_frame, "AI ACTIVE - Monitoring", (10, 25),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1)
+            
+            # Add DEMO MODE watermark
+            cv2.putText(display_frame, "DEMO MODE", (display_frame.shape[1]-150, 25),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
+            
+            if det_classes:
+                classes_str = ', '.join(f"{c}({conf:.0%})" for c, conf in zip(det_classes, det_confidences))
+                cv2.putText(display_frame, f"Detected: {classes_str}", (10, 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)
+            else:
+                cv2.putText(display_frame, "Detected: nothing", (10, 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)
+            
+            cv2.putText(display_frame, f"Frames analyzed: {frames_analyzed}", (10, 94),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+            
+            if last_alert:
+                cooldown = max(0, 30 - int(time.time() - last_alert))
+                cd_color = (0, 165, 255) if cooldown > 0 else (0, 255, 0)
+                cv2.putText(display_frame, f"Alert cooldown: {cooldown}s", (10, 116),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, cd_color, 1)
+            
+            ts = time.strftime("%H:%M:%S")
+            cv2.putText(display_frame, f"Time: {ts}", (10, 138),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
+        else:
+            cv2.putText(display_frame, "AI OFF", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128, 128, 128), 1)
+            cv2.putText(display_frame, "DEMO MODE", (display_frame.shape[1]-150, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
+        
+        # Encode and yield
+        ret, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if ret:
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        
+        # Control frame rate (simulate 15fps)
+        time.sleep(1/15)
+    
+    # Cleanup
+    cap.release()
+    if camera_id in demo_video_streams:
+        del demo_video_streams[camera_id]
+    if camera_id in demo_mode_active:
+        del demo_mode_active[camera_id]
+    print(f"🛑 Demo mode stopped for camera {camera_id}")
+
+    # Add this import at the top of views.py with other imports
+import subprocess
+
+# Add these two functions anywhere before start_demo_camera_stream
+
+def is_video_compatible(video_path):
+    """
+    Check if a video file can be opened and read by OpenCV.
+    Returns: (is_compatible: bool, message: str)
+    """
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return False, "Cannot open file"
+        
+        # Try to read first frame
+        ret, frame = cap.read()
+        cap.release()
+        
+        if not ret or frame is None:
+            return False, "Cannot read frames from video"
+        
+        return True, "Compatible"
+        
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
+
+def convert_to_mp4(input_path):
+    """
+    Convert video to MP4 with H.264 codec for maximum compatibility.
+    Returns path to converted file or None if conversion fails.
+    Requires FFmpeg to be installed on the server.
+    """
+    try:
+        output_path = input_path.rsplit('.', 1)[0] + '_converted.mp4'
+        
+        # Skip if already converted
+        if os.path.exists(output_path):
+            print(f"✅ Using existing converted file: {output_path}")
+            return output_path
+        
+        print(f"🔄 Converting {input_path} to MP4...")
+        
+        # FFmpeg command for fast, compatible conversion
+        cmd = [
+            'ffmpeg',
+            '-i', input_path,           # Input file
+            '-c:v', 'libx264',          # H.264 video codec
+            '-preset', 'fast',          # Fast encoding
+            '-crf', '23',               # Quality (lower = better, 23 is good)
+            '-c:a', 'aac',              # AAC audio codec
+            '-b:a', '128k',             # Audio bitrate
+            '-movflags', '+faststart',  # Web-optimized
+            '-y',                       # Overwrite output
+            output_path
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=300  # 5 minute timeout
+        )
+        
+        if result.returncode == 0 and os.path.exists(output_path):
+            print(f"✅ Conversion successful: {output_path}")
+            return output_path
+        else:
+            print(f"❌ Conversion failed: {result.stderr.decode()}")
+            return None
+            
+    except subprocess.TimeoutExpired:
+        print(f"❌ Conversion timeout for {input_path}")
+        return None
+    except Exception as e:
+        print(f"❌ Conversion error: {e}")
+        return None
+
+
+@login_required
+def start_demo_camera_stream(request):
+    """
+    Start a demo stream using a video file instead of RTSP.
+    Automatically assigns different videos to different cameras.
+    """
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            camera_id = data.get('camera_id')
+            camera_name = data.get('camera_name', 'Demo Camera')
+            video_file = data.get('video_file')  # Optional: specify exact video
+            
+            if not video_file:
+                demo_dir = os.path.join(settings.MEDIA_ROOT, 'demo_videos')
+                os.makedirs(demo_dir, exist_ok=True)
+                
+                # Find all video files
+                video_files = (
+                    glob.glob(os.path.join(demo_dir, '*.mp4')) +
+                    glob.glob(os.path.join(demo_dir, '*.avi')) +
+                    glob.glob(os.path.join(demo_dir, '*.mov')) +
+                    glob.glob(os.path.join(demo_dir, '*.mkv'))
+                )
+                
+                # Sort for consistent order
+                video_files.sort()
+                
+                if not video_files:
+                    return JsonResponse({
+                        'error': 'No demo videos found. Add video files to media/demo_videos/'
+                    }, status=400)
+                
+                # ✅ ASSIGN DIFFERENT VIDEOS TO DIFFERENT CAMERAS
+                # Use camera_id as index (with modulo to cycle through videos)
+                try:
+                    camera_index = int(camera_id) - 1  # Assuming IDs start at 1
+                except (ValueError, TypeError):
+                    camera_index = hash(str(camera_id))  # Fallback for non-numeric IDs
+                
+                video_index = camera_index % len(video_files)
+                video_file = video_files[video_index]
+                
+                print(f"📹 Camera {camera_id} assigned video #{video_index + 1}/{len(video_files)}: {os.path.basename(video_file)}")
+            
+            if not os.path.exists(video_file):
+                return JsonResponse({
+                    'error': f'Demo video not found: {video_file}'
+                }, status=400)
+            
+            # Check compatibility
+            is_ok, msg = is_video_compatible(video_file)
+            if not is_ok:
+                print(f"⚠️ Video incompatible: {msg}. Attempting conversion...")
+                converted_file = convert_to_mp4(video_file)
+                if converted_file:
+                    video_file = converted_file
+                else:
+                    return JsonResponse({
+                        'error': f'Video incompatible and conversion failed: {msg}'
+                    }, status=400)
+            
+            with stream_lock:
+                if camera_id in active_camera_streams and active_camera_streams[camera_id].get('active'):
+                    return JsonResponse({
+                        'status': 'success',
+                        'message': f'Demo stream already running for {camera_name}',
+                        'stream_url': f'/demo-camera-stream/{camera_id}/',
+                        'demo_mode': True
+                    })
+                
+                active_camera_streams[camera_id] = {
+                    'rtsp_url': video_file,
+                    'camera_name': camera_name,
+                    'active': True,
+                    'ai_enabled': False,
+                    'last_detection': None,
+                    'demo_mode': True
+                }
+                return JsonResponse({
+                    'status': 'success',
+                    'message': f'Demo stream started for {camera_name}',
+                    'stream_url': f'/demo-camera-stream/{camera_id}/',
+                    'demo_mode': True,
+                    'video_file': os.path.basename(video_file)
+                })
+                
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)
+    
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+
+def demo_camera_stream(request, camera_id):
+    """Stream endpoint for demo mode"""
+    try:
+        with stream_lock:
+            camera_data = active_camera_streams.get(camera_id, {})
+            if not camera_data.get('active', False):
+                return HttpResponse("Camera not active", status=404)
+            
+            video_path = camera_data.get('rtsp_url')  # It's actually a file path in demo mode
+        
+        response = StreamingHttpResponse(
+            generate_demo_camera_frames(camera_id, video_path),
+            content_type='multipart/x-mixed-replace; boundary=frame'
+        )
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response['Pragma'] = 'no-cache'
+        response['Expires'] = '0'
+        return response
+        
+    except Exception as e:
+        print(f"❌ Demo camera {camera_id} stream error: {e}")
+        return HttpResponse("Stream error", status=500)

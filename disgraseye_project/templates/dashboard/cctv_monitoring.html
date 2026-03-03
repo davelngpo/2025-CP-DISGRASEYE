@@ -483,12 +483,17 @@ async function loadCamerasFromDatabase() {
                                 class="bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1 rounded text-xs font-semibold transition">
                                 <i class="bi bi-arrows-fullscreen"></i>
                             </button>
+                            
+                            <button id="demoBtn-${id}" onclick="startDemoCameraStream('${id}')"
+                                class="bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1 rounded text-xs font-semibold transition">
+                                 <i class="bi bi-film mr-1"></i>Demo Mode
+                            </button>
                                 <!-- ←  MOCK TEST BUTTON -->
-    <button onclick="runMockTest('${id}')"
-        class="bg-orange-500 hover:bg-orange-600 text-white px-2.5 py-1 rounded text-xs font-semibold transition"
-        title="Send mock crash alert for this camera">
-        <i class="bi bi-bug mr-1"></i> Test
-    </button>
+                            <button onclick="runMockTest('${id}')"
+                                class="bg-orange-500 hover:bg-orange-600 text-white px-2.5 py-1 rounded text-xs font-semibold transition"
+                                title="Send mock crash alert for this camera">
+                                <i class="bi bi-bug mr-1"></i> Test
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -717,6 +722,81 @@ async function stopCameraStream(cameraId) {
     }).catch(err => console.warn('stopCameraStream (server):', err));
 
     showNotification(`⏹️ Stream stopped — ${cfg.location_name}`, 'success');
+}
+
+
+//_______________________________________________________________________
+// Add after the startCameraStream function (around line 450)
+
+async function startDemoCameraStream(cameraId) {
+    const id  = sid(cameraId);
+    const cfg = cameraConfigs[id];
+    if (!cfg) return;
+
+    const btn = document.getElementById(`streamBtn-${id}`);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split mr-1"></i>Starting Demo…';
+    }
+
+    try {
+        const res = await fetch('/start-demo-camera-stream/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({
+                camera_id:   id,
+                camera_name: cfg.location_name
+            })
+        });
+
+        let data = {};
+        try { data = await res.json(); } catch (_) {}
+
+        if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
+
+        cfg.stream_active = true;
+        cfg.ai_enabled    = false;
+        cfg.demo_mode     = true;
+        
+        _syncStreamUI(id, true);
+        _syncAIUI(id, false);
+        
+        // Use demo stream endpoint
+        _attachDemoStream(id);
+        
+        showNotification(
+            `🎬 Demo stream started — ${cfg.location_name} (${data.video_file})`,
+            'success'
+        );
+
+    } catch (err) {
+        console.error('startDemoCameraStream:', err);
+        cfg.stream_active = false;
+        _syncStreamUI(id, false);
+        showNotification(`❌ ${err.message}`, 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+function _attachDemoStream(cameraId) {
+    const id    = sid(cameraId);
+    const img   = document.getElementById(`video-${id}`);
+    const ph    = document.getElementById(`placeholder-${id}`);
+    const spin  = document.getElementById(`loading-${id}`);
+    const rcon  = document.getElementById(`reconnect-${id}`);
+    if (!img) return;
+
+    if (spin) spin.style.display = 'flex';
+    if (ph)   ph.style.display   = 'none';
+    if (rcon) rcon.style.display = 'none';
+    img.style.display = 'none';
+
+    // Use demo endpoint
+    img.src = `/demo-camera-stream/${id}/?t=${Date.now()}`;
 }
 
 // ─── AI toggle ─────────────────────────────────────────────────────────────────
