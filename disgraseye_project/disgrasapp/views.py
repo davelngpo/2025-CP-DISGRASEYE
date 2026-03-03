@@ -1413,7 +1413,7 @@ def ai_worker(camera_id):
                         vehicle_boxes_raw.append([x1, y1, x2, y2])
 
             # ── Require BOTH crash AND vehicle in same frame ───────────
-            crash_raw = len(crash_boxes_raw) > 0 and len(vehicle_boxes_raw) > 0
+            crash_raw = len(crash_boxes_raw) > 0
 
             # ── Duration-based confirmation (1.5 seconds) ──────────────
             now = time.time()
@@ -1421,7 +1421,7 @@ def ai_worker(camera_id):
                 if not active_camera_streams[camera_id].get('crash_first_seen'):
                     active_camera_streams[camera_id]['crash_first_seen'] = now
                 duration = now - active_camera_streams[camera_id]['crash_first_seen']
-                crash_detected = duration >= 1.5
+                crash_detected = duration >= 0.3
             else:
                 active_camera_streams[camera_id]['crash_first_seen'] = None
                 crash_detected = False
