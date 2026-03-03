@@ -116,6 +116,10 @@
         align-items: center;
         justify-content: center;
     }
+
+    #fullscreen-container.is-open {
+        display: flex;          /* shown when class added */
+    }
     #fullscreen-img {
         width: 100%;
         height: 100%;
@@ -793,36 +797,71 @@ async function stopAllAI() {
 
 // ─── Fullscreen ───────────────────────────────────────────────────────────────
 
+// ─── Fullscreen ───────────────────────────────────────────────────────────────
+
 function toggleFullscreen(cameraId) {
     const id = sid(cameraId);
-    currentFullscreenCamera === id ? exitFullscreen() : enterFullscreen(id);
+    if (currentFullscreenCamera === id) {
+        exitFullscreen();
+    } else {
+        enterFullscreen(id);
+    }
 }
 
 function enterFullscreen(cameraId) {
     const id  = sid(cameraId);
     const cfg = cameraConfigs[id];
+
     if (!cfg?.stream_active) {
         showNotification('⚠️ Start the stream before going fullscreen', 'warn');
         return;
     }
-    currentFullscreenCamera = id;
 
     const fsCont  = document.getElementById('fullscreen-container');
     const fsImg   = document.getElementById('fullscreen-img');
     const fsLabel = document.getElementById('fullscreen-label');
 
+    // Set content
     fsImg.src           = buildStreamUrl(id);
     fsLabel.textContent = `📹 ${cfg.location_name}`;
-    fsCont.style.display = 'flex';
+
+    // Show via class — no inline style conflicts
+    fsCont.classList.add('is-open');
     document.body.style.overflow = 'hidden';
+
+    currentFullscreenCamera = id;
+    
+    // Add escape key listener specifically for this camera
+    document.addEventListener('keydown', fullscreenEscapeHandler);
+}
+
+// Create a named handler function so we can remove it properly
+function fullscreenEscapeHandler(e) {
+    if (e.key === 'Escape' && currentFullscreenCamera) {
+        exitFullscreen();
+    }
 }
 
 function exitFullscreen() {
     const fsCont = document.getElementById('fullscreen-container');
     const fsImg  = document.getElementById('fullscreen-img');
+
+    // Stop MJPEG stream completely
     fsImg.src = '';
-    fsCont.style.display = 'none';
+    fsImg.removeAttribute('src');
+
+    // Hide via class removal — clean and reliable
+    fsCont.classList.remove('is-open');
+
+    // Remove any leftover inline styles from old code
+    fsCont.style.display     = '';
+    fsCont.style.visibility  = '';
+
     document.body.style.overflow = '';
+    
+    // Remove the escape key listener
+    document.removeEventListener('keydown', fullscreenEscapeHandler);
+    
     currentFullscreenCamera = null;
 }
 
@@ -990,11 +1029,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     pollCrashStatus();
     setInterval(pollCrashStatus, 10000);
 
-    // Escape exits fullscreen
-    document.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && currentFullscreenCamera) exitFullscreen();
-    });
-
     // Click outside modal → close
     document.getElementById('configModal').addEventListener('click', function(e) {
         if (e.target === this) closeConfigModal();
@@ -1009,6 +1043,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
     });
+    
+    // Add click handler for the exit button in fullscreen
+    const exitBtn = document.querySelector('#fullscreen-controls button');
+    if (exitBtn) {
+        exitBtn.addEventListener('click', exitFullscreen);
+    }
 });
 
 // ─── Poll Supabase for recent pending crash on each active camera ─────────────

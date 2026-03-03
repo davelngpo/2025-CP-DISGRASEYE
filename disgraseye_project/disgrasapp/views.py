@@ -1330,6 +1330,14 @@ def ai_worker(camera_id):
     """Runs YOLO in a separate thread — never blocks the stream."""
     print(f"🤖 AI worker started for camera {camera_id}")
 
+    DISPLAY_W = 640
+    DISPLAY_H = 480
+    SMALL_W   = 320
+    SMALL_H   = 240
+    MIN_BOX_PCT = 0.02   # 2% minimum box size
+    MAX_BOX_PCT = 0.45   # 45% maximum box size
+    VEHICLE_CLASSES = ['car', 'truck', 'motorcycle', 'tricycle', 'jeep']
+
     while active_camera_streams.get(camera_id, {}).get('active', False):
 
         if not active_camera_streams.get(camera_id, {}).get('ai_enabled', False):
@@ -1342,13 +1350,15 @@ def ai_worker(camera_id):
             continue
 
         try:
-            small_frame = cv2.resize(frame, (320, 240))
-            results = model(small_frame, imgsz=320, conf=0.5, verbose=False)
+            small_frame = cv2.resize(frame, (SMALL_W, SMALL_H))
+            results = model(small_frame, imgsz=320, conf=0.50, verbose=False)
 
-            crash_detected    = False
-            detected_classes  = []
+            crash_detected       = False
+            detected_classes     = []
             detected_confidences = []
-            detected_boxes    = []
+            detected_boxes       = []
+            crash_boxes_raw      = []
+            vehicle_boxes_raw    = []
 
             if results and results[0].boxes is not None:
                 for box in results[0].boxes:
@@ -1357,51 +1367,95 @@ def ai_worker(camera_id):
                     confidence = float(box.conf[0])
 
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
+
+                    # ── Min box size check on small frame ──────────────
+                    small_box_area   = (x2 - x1) * (y2 - y1)
+                    small_frame_area = SMALL_W * SMALL_H
+                    if small_box_area / small_frame_area < MIN_BOX_PCT:
+                        continue  # too small, likely noise
+
+                    # ── Scale coordinates to display frame ─────────────
+                    x1_s = max(0, min(int(x1 * 2), DISPLAY_W - 1))
+                    y1_s = max(0, min(int(y1 * 2), DISPLAY_H - 1))
+                    x2_s = max(0, min(int(x2 * 2), DISPLAY_W - 1))
+                    y2_s = max(0, min(int(y2 * 2), DISPLAY_H - 1))
+
+                    # ── Max box size check on display frame ────────────
+                    display_box_area = (x2_s - x1_s) * (y2_s - y1_s)
+                    display_area     = DISPLAY_W * DISPLAY_H
+                    if display_box_area / display_area > MAX_BOX_PCT:
+                        continue  # suspiciously large, skip
+
+                    is_crash   = any(k in class_name.lower() for k in ['vehiclecrash', 'crash', 'accident'])
+                    is_vehicle = any(v in class_name.lower() for v in VEHICLE_CLASSES)
+
+                    # ── Per-class confidence threshold ─────────────────
+                    min_conf = 0.75 if is_crash else 0.50
+                    if confidence < min_conf:
+                        continue
+
                     detected_boxes.append({
-                        'x1': int(x1 * 2), 'y1': int(y1 * 2),
-                        'x2': int(x2 * 2), 'y2': int(y2 * 2),
-                        'class':    class_name,
-                        'conf':     confidence,
-                        'is_crash': any(k in class_name.lower() for k in ['crash', 'accident'])
+                        'x1':      x1_s,
+                        'y1':      y1_s,
+                        'x2':      x2_s,
+                        'y2':      y2_s,
+                        'class':   class_name,
+                        'conf':    confidence,
+                        'is_crash': is_crash
                     })
+
                     detected_classes.append(class_name)
                     detected_confidences.append(confidence)
-                    if any(k in class_name.lower() for k in ['crash', 'accident']):
-                        crash_detected = True
 
+                    if is_crash:
+                        crash_boxes_raw.append([x1, y1, x2, y2])
+                    elif is_vehicle:
+                        vehicle_boxes_raw.append([x1, y1, x2, y2])
+
+            # ── Require BOTH crash AND vehicle in same frame ───────────
+            crash_raw = len(crash_boxes_raw) > 0 and len(vehicle_boxes_raw) > 0
+
+            # ── Duration-based confirmation (1.5 seconds) ──────────────
+            now = time.time()
+            if crash_raw:
+                if not active_camera_streams[camera_id].get('crash_first_seen'):
+                    active_camera_streams[camera_id]['crash_first_seen'] = now
+                duration = now - active_camera_streams[camera_id]['crash_first_seen']
+                crash_detected = duration >= 1.5
+            else:
+                active_camera_streams[camera_id]['crash_first_seen'] = None
+                crash_detected = False
+
+            # ── Update shared state ────────────────────────────────────
             with stream_lock:
                 if camera_id in active_camera_streams:
                     active_camera_streams[camera_id]['last_detection'] = {
-                        'crash_detected': crash_detected,
-                        'timestamp':      time.time(),
-                        'classes':        detected_classes,
-                        'confidences':    detected_confidences,
-                        'boxes':          detected_boxes,
+                        'crash_detected':  crash_detected,
+                        'timestamp':       now,
+                        'classes':         detected_classes,
+                        'confidences':     detected_confidences,
+                        'boxes':           detected_boxes,
                     }
                     prev = active_camera_streams[camera_id].get('frames_analyzed', 0)
                     active_camera_streams[camera_id]['frames_analyzed'] = prev + 1
 
+            # ── Send alert (30s cooldown) ──────────────────────────────
             if crash_detected:
-                last_alert = active_camera_streams.get(camera_id, {}).get('last_alert_time', 0)
-
-                # 30-second cooldown — also skip if we're already capturing a clip
+                last_alert        = active_camera_streams.get(camera_id, {}).get('last_alert_time', 0)
                 already_capturing = camera_id in camera_post_crash_capture
-                if time.time() - last_alert > 30 and not already_capturing:
 
+                if time.time() - last_alert > 30 and not already_capturing:
                     with stream_lock:
                         if camera_id in active_camera_streams:
                             active_camera_streams[camera_id]['last_alert_time'] = time.time()
 
-                    # ── Snapshot pre-crash buffer immediately ──────────────
                     before_frames = []
                     if camera_id in camera_frame_buffers:
-                        # Copy all buffered frames (oldest → newest)
                         before_frames = [f.copy() for _, f in list(camera_frame_buffers[camera_id])]
 
-                    print(f"📸 Crash detected on camera {camera_id} — "
-                          f"captured {len(before_frames)} pre-crash frames")
+                    print(f"🚨 Crash confirmed on camera {camera_id} — "
+                          f"{len(before_frames)} pre-crash frames captured")
 
-                    # ── Kick off alert + post-crash collection ─────────────
                     clip_thread = threading.Thread(
                         target=create_accident_and_start_capture,
                         args=(camera_id, before_frames),
@@ -1495,25 +1549,31 @@ def generate_camera_frames(camera_id, rtsp_url):
                     label    = f"{det['class']} {det['conf']:.0%}"
                     color    = (0, 0, 255) if is_crash else (0, 255, 0)
 
+                    # Skip if box somehow still covers too much of frame
+                    box_area    = (x2 - x1) * (y2 - y1)
+                    frame_area  = display_frame.shape[0] * display_frame.shape[1]
+                    if box_area / frame_area > 0.45:
+                        continue  # safety net — don't draw oversized boxes
+
                     # Label background
                     label_bg_y = max(y1 - 22, 0)
                     cv2.rectangle(display_frame,
-                                  (x1, label_bg_y),
-                                  (x1 + len(label) * 9, y1),
-                                  color, -1)
+                                (x1, label_bg_y),
+                                (x1 + len(label) * 9, y1),
+                                color, -1)
 
                     # Bounding box
                     cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
 
                     # Label text
                     cv2.putText(display_frame, label, (x1 + 3, y1 - 6),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-                    # Red border around entire frame when crash
-                    if is_crash:
-                        cv2.rectangle(display_frame, (0, 0),
-                                     (display_frame.shape[1]-1, display_frame.shape[0]-1),
-                                     (0, 0, 255), 4)
+                # ── Red border only if crash confirmed (not just detected) ────
+                if crash_detected:
+                    cv2.rectangle(display_frame, (2, 2),
+                                (display_frame.shape[1]-2, display_frame.shape[0]-2),
+                                (0, 0, 255), 2)  # thin border, not full 4px   
 
                 # ── Debug panel background ─────────────────────────────────
                 overlay = display_frame.copy()
