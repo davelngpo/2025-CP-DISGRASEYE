@@ -78,3 +78,4 @@ ultralytics-thop==2.0.18
 urllib3==2.6.3
 websockets==15.0.1
 yarl==1.22.0
+gunicorn==21.2.0
